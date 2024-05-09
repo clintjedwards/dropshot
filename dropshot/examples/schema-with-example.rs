@@ -48,6 +48,12 @@ fn bar_example() -> Bar {
 }
 
 fn main() -> Result<(), String> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_target(false)
+        .compact()
+        .init();
+
     let mut api = ApiDescription::new();
     api.register(get_foo).unwrap();
 
@@ -67,6 +73,7 @@ fn main() -> Result<(), String> {
 async fn get_foo(
     _rqctx: RequestContext<()>,
 ) -> Result<HttpResponseOk<Foo>, HttpError> {
+    #[allow(clippy::disallowed_names)]
     let foo = foo_example();
     Ok(HttpResponseOk(foo))
 }

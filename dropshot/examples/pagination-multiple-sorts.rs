@@ -150,6 +150,7 @@ fn default_project_sort() -> ProjectSort {
 
 #[derive(Deserialize, Clone, JsonSchema, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[allow(clippy::enum_variant_names)]
 enum ProjectSort {
     /// by name ascending
     ByNameAscending,
@@ -280,6 +281,12 @@ async fn example_list_projects(
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_target(false)
+        .compact()
+        .init();
+
     let port = std::env::args()
         .nth(1)
         .map(|p| p.parse::<u16>())

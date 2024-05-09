@@ -18,6 +18,12 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_target(false)
+        .compact()
+        .init();
+
     let config_dropshot: ConfigDropshot = Default::default();
 
     let mut api = ApiDescription::new();

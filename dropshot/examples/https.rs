@@ -66,6 +66,12 @@ async fn main() -> Result<(), String> {
         key_file: key_file.path().to_path_buf(),
     });
 
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_target(false)
+        .compact()
+        .init();
+
     // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(example_api_get_counter).unwrap();

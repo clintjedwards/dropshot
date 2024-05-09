@@ -8,8 +8,6 @@ use hyper::{body::HttpBody, Body};
 use hyper_staticfile::FileBytesStream;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
-extern crate slog;
-
 pub mod common;
 
 fn api() -> ApiDescription<usize> {

@@ -187,6 +187,12 @@ impl SharedMultiServerContext {
             Entry::Vacant(slot) => slot,
         };
 
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_target(false)
+            .compact()
+            .init();
+
         // Build a description of the API.
         //
         // TODO: Could `ApiDescription` implement `Clone`, or could we pass an

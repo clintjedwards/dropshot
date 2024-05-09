@@ -9,8 +9,6 @@ use dropshot::{
 use http::{Method, Response, StatusCode};
 use hyper::Body;
 
-extern crate slog;
-
 pub mod common;
 
 fn api() -> ApiDescription<usize> {
