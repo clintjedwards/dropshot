@@ -94,8 +94,6 @@ use chrono::Utc;
 use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpServerStarter;
@@ -116,9 +114,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::ops::Bound;
 use std::sync::Arc;
-
-#[macro_use]
-extern crate slog;
+use tracing::info;
 
 /// Item returned by our paginated endpoint
 ///
@@ -297,24 +293,19 @@ async fn main() -> Result<(), String> {
         bind_address: SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
         ..Default::default()
     };
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Debug };
-    let log = config_logging
-        .to_logger("example-pagination-basic")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
     let mut api = ApiDescription::new();
     api.register(example_list_projects).unwrap();
-    let server = HttpServerStarter::new(&config_dropshot, api, ctx, &log)
+    let server = HttpServerStarter::new(&config_dropshot, api, ctx)
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
 
     // Print out some example requests to start with.
-    print_example_requests(log, &server.local_addr());
+    print_example_requests(&server.local_addr());
 
     server.await
 }
 
-fn print_example_requests(log: slog::Logger, addr: &SocketAddr) {
+fn print_example_requests(addr: &SocketAddr) {
     let all_modes = vec![
         ProjectSort::ByNameAscending,
         ProjectSort::ByNameDescending,
@@ -330,7 +321,7 @@ fn print_example_requests(log: slog::Logger, addr: &SocketAddr) {
             .path_and_query(format!("/projects?{}", query_string).as_str())
             .build()
             .unwrap();
-        info!(log, "example: {}", uri);
+        info!("example: {}", uri);
     }
 }
 
@@ -366,7 +357,7 @@ impl ProjectCollection {
             // decrease with the names, and we'll have some objects with the same
             // mtime.
             if n % 10 != 0 {
-                timestamp = timestamp - 1;
+                timestamp -= 1;
             }
             data.by_name.insert(name.clone(), Arc::clone(&project));
             data.by_mtime.insert((project.mtime, name), project);

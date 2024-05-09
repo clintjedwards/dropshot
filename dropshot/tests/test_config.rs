@@ -8,15 +8,12 @@ use dropshot::{
     RequestContext,
 };
 use dropshot::{HttpServer, HttpServerStarter};
-use slog::o;
-use slog::Logger;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU16, Ordering};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
 
 pub mod common;
-use common::create_log_context;
 
 // Bad values for "bind_address"
 
@@ -85,7 +82,6 @@ fn test_config_bad_request_body_max_bytes_too_large() {
 fn make_server<T: Send + Sync + 'static>(
     context: T,
     config: &ConfigDropshot,
-    log: &Logger,
     tls: Option<ConfigTls>,
     api_description: Option<dropshot::ApiDescription<T>>,
 ) -> HttpServerStarter<T> {
@@ -93,7 +89,6 @@ fn make_server<T: Send + Sync + 'static>(
         config,
         api_description.unwrap_or_else(dropshot::ApiDescription::new),
         context,
-        log,
         tls,
     )
     .unwrap()
@@ -125,8 +120,6 @@ where
     fn make_client(&self) -> hyper::Client<C>;
     fn make_server(&self, bind_port: u16) -> HttpServer<Self::Context>;
     fn make_uri(&self, bind_port: u16) -> hyper::Uri;
-
-    fn log(&self) -> &slog::Logger;
 }
 
 // Validate that we can create a server with the given configuration and that
@@ -180,12 +173,7 @@ where
 
 #[tokio::test]
 async fn test_config_bind_address_http() {
-    let logctx = create_log_context("config_bind_address_http");
-    let log = logctx.log.new(o!());
-
-    struct ConfigBindServerHttp {
-        log: slog::Logger,
-    }
+    struct ConfigBindServerHttp {}
     impl TestConfigBindServer<hyper::client::connect::HttpConnector>
         for ConfigBindServerHttp
     {
@@ -206,26 +194,19 @@ async fn test_config_bind_address_http() {
                 bind_port,
                 HandlerTaskMode::CancelOnDisconnect,
             );
-            make_server(0, &config, &self.log, None, None).start()
-        }
-
-        fn log(&self) -> &slog::Logger {
-            &self.log
+            make_server(0, &config, None, None).start()
         }
     }
 
-    let test_config = ConfigBindServerHttp { log };
+    let test_config = ConfigBindServerHttp {};
     let bind_port = 12215;
     test_config_bind_server::<_, ConfigBindServerHttp>(test_config, bind_port)
         .await;
-
-    logctx.cleanup_successful();
 }
 
 #[tokio::test]
 async fn test_config_bind_address_https() {
     struct ConfigBindServerHttps<'a> {
-        log: slog::Logger,
         certs: Vec<rustls::pki_types::CertificateDer<'a>>,
         cert_file: NamedTempFile,
         key_file: NamedTempFile,
@@ -274,34 +255,24 @@ async fn test_config_bind_address_https() {
                 bind_port,
                 HandlerTaskMode::CancelOnDisconnect,
             );
-            make_server(0, &config, &self.log, tls, None).start()
-        }
-
-        fn log(&self) -> &Logger {
-            &self.log
+            make_server(0, &config, tls, None).start()
         }
     }
-
-    let logctx = create_log_context("config_bind_address_https");
-    let log = logctx.log.new(o!());
 
     // Generate key for the server
     let (certs, key) = common::generate_tls_key();
     let (cert_file, key_file) = common::tls_key_to_file(&certs, &key);
-    let test_config = ConfigBindServerHttps { log, certs, cert_file, key_file };
+    let test_config = ConfigBindServerHttps { certs, cert_file, key_file };
 
     // This must be different than the bind_port used in the http test.
     let bind_port = 12217;
     test_config_bind_server::<_, ConfigBindServerHttps>(test_config, bind_port)
         .await;
-
-    logctx.cleanup_successful();
 }
 
 #[tokio::test]
 async fn test_config_bind_address_https_buffer() {
     struct ConfigBindServerHttps<'a> {
-        log: slog::Logger,
         certs: Vec<rustls::pki_types::CertificateDer<'a>>,
         serialized_certs: Vec<u8>,
         serialized_key: Vec<u8>,
@@ -350,30 +321,21 @@ async fn test_config_bind_address_https_buffer() {
                 bind_port,
                 HandlerTaskMode::CancelOnDisconnect,
             );
-            make_server(0, &config, &self.log, tls, None).start()
-        }
-
-        fn log(&self) -> &Logger {
-            &self.log
+            make_server(0, &config, tls, None).start()
         }
     }
-
-    let logctx = create_log_context("config_bind_address_https_buffer");
-    let log = logctx.log.new(o!());
 
     // Generate key for the server
     let (certs, key) = common::generate_tls_key();
     let (serialized_certs, serialized_key) =
         common::tls_key_to_buffer(&certs, &key);
     let test_config =
-        ConfigBindServerHttps { log, certs, serialized_certs, serialized_key };
+        ConfigBindServerHttps { certs, serialized_certs, serialized_key };
 
     // This must be different than the bind_port used in the http test.
     let bind_port = 12219;
     test_config_bind_server::<_, ConfigBindServerHttps>(test_config, bind_port)
         .await;
-
-    logctx.cleanup_successful();
 }
 
 struct HandlerTaskModeContext {
@@ -405,8 +367,6 @@ struct ConfigHandlerTaskModeHttp {
     // stash the actual port in this atomic.
     bound_port: AtomicU16,
     task_mode: HandlerTaskMode,
-
-    log: slog::Logger,
 }
 
 impl TestConfigBindServer<hyper::client::connect::HttpConnector>
@@ -477,8 +437,7 @@ impl TestConfigBindServer<hyper::client::connect::HttpConnector>
         let mut api = dropshot::ApiDescription::new();
         api.register(track_cancel_endpoint).unwrap();
 
-        let server =
-            make_server(context, &config, &self.log, None, Some(api)).start();
+        let server = make_server(context, &config, None, Some(api)).start();
 
         self.bound_port.store(server.local_addr().port(), Ordering::SeqCst);
 
@@ -489,17 +448,10 @@ impl TestConfigBindServer<hyper::client::connect::HttpConnector>
         let bind_port = self.bound_port.load(Ordering::SeqCst);
         format!("http://localhost:{}/", bind_port).parse().unwrap()
     }
-
-    fn log(&self) -> &slog::Logger {
-        &self.log
-    }
 }
 
 #[tokio::test]
 async fn test_config_handler_task_mode_cancel() {
-    let logctx = create_log_context("config_handler_task_mode_cancel");
-    let log = logctx.log.new(o!());
-
     let (endpoint_started_tx, mut endpoint_started_rx) =
         mpsc::unbounded_channel();
     let (_release_endpoint_tx, release_endpoint_rx) =
@@ -513,7 +465,6 @@ async fn test_config_handler_task_mode_cancel() {
         endpoint_finished_tx,
         bound_port: AtomicU16::new(0),
         task_mode: HandlerTaskMode::CancelOnDisconnect,
-        log,
     };
     let bind_port = 0;
 
@@ -541,15 +492,10 @@ async fn test_config_handler_task_mode_cancel() {
     }
 
     server.close().await.unwrap();
-
-    logctx.cleanup_successful();
 }
 
 #[tokio::test]
 async fn test_config_handler_task_mode_detached() {
-    let logctx = create_log_context("config_handler_task_mode_detached");
-    let log = logctx.log.new(o!());
-
     let (endpoint_started_tx, mut endpoint_started_rx) =
         mpsc::unbounded_channel();
     let (release_endpoint_tx, release_endpoint_rx) = async_channel::unbounded();
@@ -562,7 +508,6 @@ async fn test_config_handler_task_mode_detached() {
         endpoint_finished_tx,
         bound_port: AtomicU16::new(0),
         task_mode: HandlerTaskMode::Detached,
-        log,
     };
     let bind_port = 0;
 
@@ -595,6 +540,4 @@ async fn test_config_handler_task_mode_detached() {
     }
 
     server.close().await.unwrap();
-
-    logctx.cleanup_successful();
 }

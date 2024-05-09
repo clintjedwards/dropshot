@@ -3,8 +3,6 @@
 
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HttpError;
 use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
@@ -22,20 +20,12 @@ async fn main() -> Result<(), String> {
     // port.
     let config_dropshot: ConfigDropshot = Default::default();
 
-    // For simplicity, we'll configure an "info"-level logger that writes to
-    // stderr assuming that it's a terminal.
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Info };
-    let log = config_logging
-        .to_logger("example-basic")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
-
     // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(index).unwrap();
 
     // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, (), &log)
+    let server = HttpServerStarter::new(&config_dropshot, api, ())
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
 

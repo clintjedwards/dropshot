@@ -45,22 +45,12 @@
 //! ```no_run
 //! use dropshot::ApiDescription;
 //! use dropshot::ConfigDropshot;
-//! use dropshot::ConfigLogging;
-//! use dropshot::ConfigLoggingLevel;
 //! use dropshot::HandlerTaskMode;
 //! use dropshot::HttpServerStarter;
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), String> {
-//!     // Set up a logger.
-//!     let log =
-//!         ConfigLogging::StderrTerminal {
-//!             level: ConfigLoggingLevel::Info,
-//!         }
-//!         .to_logger("minimal-example")
-//!         .map_err(|e| e.to_string())?;
-//!
 //!     // Describe the API.
 //!     let api = ApiDescription::new();
 //!     // Register API functions -- see detailed example or ApiDescription docs.
@@ -75,7 +65,6 @@
 //!             },
 //!             api,
 //!             Arc::new(()),
-//!             &log,
 //!         )
 //!         .map_err(|error| format!("failed to start server: {}", error))?
 //!         .start();
@@ -592,7 +581,6 @@ mod extractor;
 mod from_map;
 mod handler;
 mod http_util;
-mod logging;
 mod pagination;
 mod router;
 mod schema_util;
@@ -603,78 +591,41 @@ mod websocket;
 
 pub mod test_util;
 
-#[macro_use]
-extern crate slog;
-
-pub use api_description::ApiDescription;
-pub use api_description::ApiEndpoint;
-pub use api_description::ApiEndpointBodyContentType;
-pub use api_description::ApiEndpointParameter;
-pub use api_description::ApiEndpointParameterLocation;
-pub use api_description::ApiEndpointResponse;
-pub use api_description::EndpointTagPolicy;
-pub use api_description::ExtensionMode;
-pub use api_description::OpenApiDefinition;
-pub use api_description::TagConfig;
-pub use api_description::TagDetails;
-pub use api_description::TagExternalDocs;
-pub use config::ConfigDropshot;
-pub use config::ConfigTls;
-pub use config::HandlerTaskMode;
-pub use config::RawTlsConfig;
+pub use api_description::{
+    ApiDescription, ApiEndpoint, ApiEndpointBodyContentType,
+    ApiEndpointParameter, ApiEndpointParameterLocation, ApiEndpointResponse,
+    EndpointTagPolicy, ExtensionMode, OpenApiDefinition, TagConfig, TagDetails,
+    TagExternalDocs,
+};
+pub use config::{ConfigDropshot, ConfigTls, HandlerTaskMode, RawTlsConfig};
 pub use dtrace::ProbeRegistration;
-pub use error::HttpError;
-pub use error::HttpErrorResponseBody;
-pub use extractor::ExclusiveExtractor;
-pub use extractor::ExtractorMetadata;
-pub use extractor::MultipartBody;
-pub use extractor::Path;
-pub use extractor::Query;
-pub use extractor::RawRequest;
-pub use extractor::SharedExtractor;
-pub use extractor::StreamingBody;
-pub use extractor::TypedBody;
-pub use extractor::UntypedBody;
-pub use handler::http_response_found;
-pub use handler::http_response_see_other;
-pub use handler::http_response_temporary_redirect;
-pub use handler::FreeformBody;
-pub use handler::HttpCodedResponse;
-pub use handler::HttpResponse;
-pub use handler::HttpResponseAccepted;
-pub use handler::HttpResponseCreated;
-pub use handler::HttpResponseDeleted;
-pub use handler::HttpResponseFound;
-pub use handler::HttpResponseHeaders;
-pub use handler::HttpResponseOk;
-pub use handler::HttpResponseSeeOther;
-pub use handler::HttpResponseTemporaryRedirect;
-pub use handler::HttpResponseUpdatedNoContent;
-pub use handler::NoHeaders;
-pub use handler::RequestContext;
-pub use handler::RequestInfo;
-pub use http_util::CONTENT_TYPE_JSON;
-pub use http_util::CONTENT_TYPE_MULTIPART_FORM_DATA;
-pub use http_util::CONTENT_TYPE_NDJSON;
-pub use http_util::CONTENT_TYPE_OCTET_STREAM;
-pub use http_util::CONTENT_TYPE_URL_ENCODED;
-pub use http_util::HEADER_REQUEST_ID;
-pub use logging::ConfigLogging;
-pub use logging::ConfigLoggingIfExists;
-pub use logging::ConfigLoggingLevel;
-pub use pagination::EmptyScanParams;
-pub use pagination::PaginationOrder;
-pub use pagination::PaginationParams;
-pub use pagination::ResultsPage;
-pub use pagination::WhichPage;
-pub use server::ServerContext;
-pub use server::ShutdownWaitFuture;
-pub use server::{HttpServer, HttpServerStarter};
-pub use websocket::WebsocketChannelResult;
-pub use websocket::WebsocketConnection;
-pub use websocket::WebsocketConnectionRaw;
-pub use websocket::WebsocketEndpointResult;
-pub use websocket::WebsocketUpgrade;
+pub use error::{HttpError, HttpErrorResponseBody};
+pub use extractor::{
+    ExclusiveExtractor, ExtractorMetadata, MultipartBody, Path, Query,
+    RawRequest, SharedExtractor, StreamingBody, TypedBody, UntypedBody,
+};
+pub use handler::{
+    http_response_found, http_response_see_other,
+    http_response_temporary_redirect, FreeformBody, HttpCodedResponse,
+    HttpResponse, HttpResponseAccepted, HttpResponseCreated,
+    HttpResponseDeleted, HttpResponseFound, HttpResponseHeaders,
+    HttpResponseOk, HttpResponseSeeOther, HttpResponseTemporaryRedirect,
+    HttpResponseUpdatedNoContent, NoHeaders, RequestContext, RequestInfo,
+};
+pub use http_util::{
+    CONTENT_TYPE_JSON, CONTENT_TYPE_MULTIPART_FORM_DATA, CONTENT_TYPE_NDJSON,
+    CONTENT_TYPE_OCTET_STREAM, CONTENT_TYPE_URL_ENCODED, HEADER_REQUEST_ID,
+};
+pub use pagination::{
+    EmptyScanParams, PaginationOrder, PaginationParams, ResultsPage, WhichPage,
+};
+pub use server::{
+    HttpServer, HttpServerStarter, ServerContext, ShutdownWaitFuture,
+};
+pub use websocket::{
+    WebsocketChannelResult, WebsocketConnection, WebsocketConnectionRaw,
+    WebsocketEndpointResult, WebsocketUpgrade,
+};
 
 // Users of the `endpoint` macro need the following macros:
 pub use handler::RequestContextArgument;

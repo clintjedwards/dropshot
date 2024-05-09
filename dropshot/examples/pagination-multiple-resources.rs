@@ -6,8 +6,6 @@
 use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpServerStarter;
@@ -167,7 +165,7 @@ async fn example_list_projects(
     let scan_params = scan_params(&pag_params.page);
 
     let iter = do_list(
-        &data,
+        data,
         &scan_params,
         &pag_params.page,
         &data.projects_by_name,
@@ -193,7 +191,7 @@ async fn example_list_disks(
     let scan_params = scan_params(&pag_params.page);
 
     let iter = do_list(
-        &data,
+        data,
         &scan_params,
         &pag_params.page,
         &data.disks_by_name,
@@ -219,7 +217,7 @@ async fn example_list_instances(
     let scan_params = scan_params(&pag_params.page);
 
     let iter = do_list(
-        &data,
+        data,
         &scan_params,
         &pag_params.page,
         &data.instances_by_name,
@@ -281,16 +279,11 @@ async fn main() -> Result<(), String> {
         bind_address: SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
         ..Default::default()
     };
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Debug };
-    let log = config_logging
-        .to_logger("example-pagination-basic")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
     let mut api = ApiDescription::new();
     api.register(example_list_projects).unwrap();
     api.register(example_list_disks).unwrap();
     api.register(example_list_instances).unwrap();
-    let server = HttpServerStarter::new(&config_dropshot, api, ctx, &log)
+    let server = HttpServerStarter::new(&config_dropshot, api, ctx)
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
 
@@ -326,19 +319,19 @@ impl DataCollection {
         for n in 1..1000 {
             let pname = format!("project{:03}", n);
             let project =
-                Arc::new(Project { id: Uuid::new_v4(), name: pname.clone() });
+                Arc::new(Project { id: Uuid::now_v7(), name: pname.clone() });
             data.projects_by_name.insert(pname.clone(), Arc::clone(&project));
             data.projects_by_id.insert(project.id, project);
 
             let dname = format!("disk{:03}", n);
             let disk =
-                Arc::new(Disk { id: Uuid::new_v4(), name: dname.clone() });
+                Arc::new(Disk { id: Uuid::now_v7(), name: dname.clone() });
             data.disks_by_name.insert(dname.clone(), Arc::clone(&disk));
             data.disks_by_id.insert(disk.id, disk);
 
             let iname = format!("disk{:03}", n);
             let instance =
-                Arc::new(Instance { id: Uuid::new_v4(), name: iname.clone() });
+                Arc::new(Instance { id: Uuid::now_v7(), name: iname.clone() });
             data.instances_by_name.insert(iname.clone(), Arc::clone(&instance));
             data.instances_by_id.insert(instance.id, instance);
         }

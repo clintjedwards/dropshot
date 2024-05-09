@@ -70,8 +70,6 @@
 use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HttpError;
 use dropshot::HttpResponseCreated;
 use dropshot::HttpResponseDeleted;
@@ -88,8 +86,6 @@ use futures::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use slog::info;
-use slog::Logger;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::mem;
@@ -97,6 +93,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -156,12 +153,11 @@ struct MultiServerContext {
     // `name` and `log` are unique to each running server, allowing them to log
     // their own name when they shut down.
     name: String,
-    log: Logger,
 }
 
 impl Drop for MultiServerContext {
     fn drop(&mut self) {
-        info!(self.log, "shut down server {:?}", self.name);
+        info!(name = self.name, "shut down server");
     }
 }
 
@@ -191,14 +187,6 @@ impl SharedMultiServerContext {
             Entry::Vacant(slot) => slot,
         };
 
-        // For simplicity, we'll configure an "info"-level logger that writes to
-        // stderr assuming that it's a terminal.
-        let config_logging =
-            ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Info };
-        let log = config_logging
-            .to_logger(format!("example-multiserver-{name}"))
-            .map_err(|error| format!("failed to create logger: {}", error))?;
-
         // Build a description of the API.
         //
         // TODO: Could `ApiDescription` implement `Clone`, or could we pass an
@@ -216,12 +204,10 @@ impl SharedMultiServerContext {
         let context = MultiServerContext {
             shared: Arc::clone(self),
             name: name.to_string(),
-            log: log.clone(),
         };
-        let server =
-            HttpServerStarter::new(&config_dropshot, api, context, &log)
-                .map_err(|error| format!("failed to create server: {}", error))?
-                .start();
+        let server = HttpServerStarter::new(&config_dropshot, api, context)
+            .map_err(|error| format!("failed to create server: {}", error))?
+            .start();
         let shutdown_handle = server.wait_for_shutdown();
 
         slot.insert(server);

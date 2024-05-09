@@ -13,8 +13,6 @@
 use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpServerStarter;
@@ -23,19 +21,12 @@ use dropshot::RequestContext;
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let config_dropshot: ConfigDropshot = Default::default();
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Info };
-    let log = config_logging
-        .to_logger("example-basic")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
     let mut api = ApiDescription::new();
     api.register(example_api_get_header_generic).unwrap();
 
-    let api_context = ();
-    let server =
-        HttpServerStarter::new(&config_dropshot, api, api_context, &log)
-            .map_err(|error| format!("failed to create server: {}", error))?
-            .start();
+    let server = HttpServerStarter::new(&config_dropshot, api, ())
+        .map_err(|error| format!("failed to create server: {}", error))?
+        .start();
     server.await
 }
 

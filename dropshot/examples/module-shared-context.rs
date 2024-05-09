@@ -4,8 +4,6 @@
 
 use dropshot::endpoint;
 use dropshot::ApiDescription;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpServerStarter;
@@ -26,14 +24,6 @@ async fn main() -> Result<(), String> {
     // port.
     let config_dropshot = Default::default();
 
-    // For simplicity, we'll configure an "info"-level logger that writes to
-    // stderr assuming that it's a terminal.
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Info };
-    let log = config_logging
-        .to_logger("example-basic")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
-
     // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(example_api_get_counter).unwrap();
@@ -42,14 +32,10 @@ async fn main() -> Result<(), String> {
     let api_context = Arc::new(ExampleContext::new());
 
     // Set up the server.
-    let server = HttpServerStarter::new(
-        &config_dropshot,
-        api,
-        api_context.clone(),
-        &log,
-    )
-    .map_err(|error| format!("failed to create server: {}", error))?
-    .start();
+    let server =
+        HttpServerStarter::new(&config_dropshot, api, api_context.clone())
+            .map_err(|error| format!("failed to create server: {}", error))?
+            .start();
 
     // Wait for the server to stop.  Note that there's not any code to shut down
     // this server, so we should never get past this point.
@@ -75,18 +61,18 @@ async fn main() -> Result<(), String> {
 }
 
 /// Application-specific example context (state shared by handler functions)
+#[derive(Default)]
 pub struct ExampleContext {
-    /// counter that can be read by requests to the HTTP API
+    /// counter that can be manipulated by requests to the HTTP API
     pub counter: AtomicU64,
 }
 
 impl ExampleContext {
     /// Return a new ExampleContext.
     pub fn new() -> ExampleContext {
-        ExampleContext { counter: AtomicU64::new(0) }
+        ExampleContext::default()
     }
 }
-
 // HTTP API interface
 
 /// `CounterValue` represents the value of the API's counter.

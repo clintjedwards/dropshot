@@ -42,7 +42,7 @@ async fn api_multipart(
 #[tokio::test]
 async fn test_multipart_client() {
     let api = api();
-    let testctx = common::test_setup("multipart_client", api);
+    let testctx = common::test_setup(api);
 
     let test_string = "abcd";
     let uri = testctx.client_testctx.url("/upload");
@@ -81,7 +81,7 @@ async fn test_multipart_client() {
 #[tokio::test]
 async fn missing_boundary() {
     let api = api();
-    let testctx = common::test_setup("multipart_client", api);
+    let testctx = common::test_setup(api);
 
     let uri = testctx.client_testctx.url("/upload");
     let request = hyper::Request::builder()
@@ -110,7 +110,7 @@ async fn missing_boundary() {
 #[tokio::test]
 async fn no_content_type() {
     let api = api();
-    let testctx = common::test_setup("multipart_client", api);
+    let testctx = common::test_setup(api);
 
     let uri = testctx.client_testctx.url("/upload");
     let request = hyper::Request::builder()
@@ -138,7 +138,7 @@ async fn no_content_type() {
 #[tokio::test]
 async fn weird_content_type() {
     let api = api();
-    let testctx = common::test_setup("multipart_client", api);
+    let testctx = common::test_setup(api);
 
     let uri = testctx.client_testctx.url("/upload");
     let request = hyper::Request::builder()

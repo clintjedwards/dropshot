@@ -54,7 +54,7 @@ fn test_pagination_schema() -> Result<(), String> {
         .license_name("CDDL")
         .terms_of_service("no hat, no cane? no service!")
         .write(&mut output);
-    let actual = from_utf8(&output.get_ref()).unwrap();
+    let actual = from_utf8(output.get_ref()).unwrap();
 
     expectorate::assert_contents("tests/test_pagination_schema.json", actual);
     Ok(())

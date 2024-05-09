@@ -36,7 +36,7 @@ async fn api_streaming(
                 "Cannot create tempfile".to_string(),
             )
         })
-        .map(|f| tokio::fs::File::from_std(f))?;
+        .map(tokio::fs::File::from_std)?;
 
     // Fill the file with some arbitrary contents.
     let mut buf = [0; BUF_SIZE];
@@ -85,7 +85,7 @@ fn check_has_transfer_encoding(
 #[tokio::test]
 async fn test_streaming_server_streaming_client() {
     let api = api();
-    let testctx = common::test_setup("streaming_server_streaming_client", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     let mut response = client
@@ -119,7 +119,7 @@ async fn test_streaming_server_streaming_client() {
 #[tokio::test]
 async fn test_streaming_server_buffered_client() {
     let api = api();
-    let testctx = common::test_setup("streaming_server_buffered_client", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     let mut response = client
@@ -143,10 +143,7 @@ async fn test_streaming_server_buffered_client() {
 #[tokio::test]
 async fn test_non_streaming_servers_do_not_use_transfer_encoding() {
     let api = api();
-    let testctx = common::test_setup(
-        "non_streaming_servers_do_not_use_transfer_encoding",
-        api,
-    );
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     let response = client

@@ -50,7 +50,6 @@ async fn test_graceful_shutdown_with_detached_handler() {
 
     let api = api();
     let testctx = common::test_setup_with_context(
-        "graceful_shutdown_with_detached_handler",
         api,
         Context { endpoint_started_tx, release_endpoint_rx },
         HandlerTaskMode::Detached,

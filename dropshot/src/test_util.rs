@@ -6,34 +6,28 @@ use camino::Utf8PathBuf;
 use chrono::DateTime;
 use chrono::Utc;
 use http::method::Method;
-use hyper::body::to_bytes;
-use hyper::client::HttpConnector;
-use hyper::Body;
-use hyper::Client;
-use hyper::Request;
-use hyper::Response;
-use hyper::StatusCode;
-use hyper::Uri;
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
-use serde::Serialize;
-use slog::Logger;
-use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::fs;
-use std::iter::Iterator;
-use std::net::SocketAddr;
-use std::path::Path;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering;
+use hyper::{
+    body::to_bytes, client::HttpConnector, Body, Client, Request, Response,
+    StatusCode, Uri,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::{
+    convert::TryFrom,
+    fmt::Debug,
+    fs,
+    iter::Iterator,
+    net::SocketAddr,
+    path::Path,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use crate::api_description::ApiDescription;
 use crate::config::ConfigDropshot;
 use crate::error::HttpErrorResponseBody;
 use crate::http_util::CONTENT_TYPE_URL_ENCODED;
-use crate::logging::ConfigLogging;
 use crate::pagination::ResultsPage;
 use crate::server::{HttpServer, HttpServerStarter, ServerContext};
+use tracing::info;
 
 enum AllowedValue<'a> {
     Any,
@@ -78,18 +72,12 @@ pub struct ClientTestContext {
     pub bind_address: SocketAddr,
     /// HTTP client, used for making requests against the test server
     pub client: Client<HttpConnector>,
-    /// logger for the test suite HTTP client
-    pub client_log: Logger,
 }
 
 impl ClientTestContext {
     /// Set up a `ClientTestContext` for running tests against an API server.
-    pub fn new(server_addr: SocketAddr, log: Logger) -> ClientTestContext {
-        ClientTestContext {
-            bind_address: server_addr,
-            client: Client::new(),
-            client_log: log,
-        }
+    pub fn new(server_addr: SocketAddr) -> ClientTestContext {
+        ClientTestContext { bind_address: server_addr, client: Client::new() }
     }
 
     /// Given the path for an API endpoint (e.g., "/projects"), return a Uri that
@@ -237,10 +225,11 @@ impl ClientTestContext {
         expected_status: StatusCode,
     ) -> Result<Response<Body>, HttpErrorResponseBody> {
         let time_before = chrono::offset::Utc::now().timestamp();
-        info!(self.client_log, "client request";
-            "method" => %request.method(),
-            "uri" => %request.uri(),
-            "body" => ?&request.body(),
+        info!(
+            method = %request.method(),
+            uri = %request.uri(),
+            body = ?&request.body(),
+            "client request"
         );
 
         let mut response = self
@@ -251,7 +240,7 @@ impl ClientTestContext {
 
         // Check that we got the expected response code.
         let status = response.status();
-        info!(self.client_log, "client received response"; "status" => ?status);
+        info!(status = ?status, "client received response");
         assert_eq!(expected_status, status);
 
         // Check that we didn't have any unexpected headers.  This could be more
@@ -336,126 +325,9 @@ impl ClientTestContext {
         // We got an error.  Parse the response body to make sure it's valid and
         // then return that.
         let error_body: HttpErrorResponseBody = read_json(&mut response).await;
-        info!(self.client_log, "client error"; "error_body" => ?error_body);
+        info!(error_body = ?error_body, "client error");
         assert_eq!(error_body.request_id, request_id_header);
         Err(error_body)
-    }
-}
-
-/// Constructs a Logger for use by a test suite.  If a file-based logger is
-/// requested, the file will be put in a temporary directory and the name will be
-/// unique for a given test name and is likely to be unique across multiple runs
-/// of this test.  The file will also be deleted if the test succeeds, indicated
-/// by invoking [`LogContext::cleanup_successful`].  This way, you can debug a
-/// test failure from the failed instance rather than hoping the failure is
-/// reproducible.
-///
-/// ## Example
-///
-/// ```
-/// # use dropshot::ConfigLoggingLevel;
-/// #
-/// # fn my_logging_config() -> ConfigLogging {
-/// #     ConfigLogging::StderrTerminal {
-/// #         level: ConfigLoggingLevel::Info,
-/// #     }
-/// # }
-/// #
-/// # fn some_invariant() -> bool {
-/// #     true
-/// # }
-/// #
-/// use dropshot::ConfigLogging;
-/// use dropshot::test_util::LogContext;
-///
-/// #[macro_use]
-/// extern crate slog; /* for the `info!` macro below */
-///
-/// # fn main() {
-/// let log_config: ConfigLogging = my_logging_config();
-/// let logctx = LogContext::new("my_test", &log_config);
-/// let log = &logctx.log;
-///
-/// /* Run your test.  Use the log like you normally would. */
-/// info!(log, "the test is going great");
-/// assert!(some_invariant());
-///
-/// /* Upon successful completion, invoke `cleanup_successful()`. */
-/// logctx.cleanup_successful();
-/// # }
-/// ```
-///
-/// If the test fails (e.g., the `some_invariant()` assertion fails), the log
-/// file will be retained.  If the test gets as far as calling
-/// `cleanup_successful()`, the log file will be removed.
-///
-/// Note that `cleanup_successful()` is not invoked automatically on `drop`
-/// because that would remove the file even if the test failed, which isn't what
-/// we want.  You have to explicitly call `cleanup_successful`.  Normally, you
-/// just do this as one of the last steps in your test.  This pattern ensures
-/// that the log file sticks around if the test fails, but is removed if the test
-/// succeeds.
-pub struct LogContext {
-    /// general-purpose logger
-    pub log: Logger,
-    test_name: String,
-    log_path: Option<Utf8PathBuf>,
-}
-
-impl LogContext {
-    /// Sets up a LogContext.  If `initial_config_logging` specifies a file-based
-    /// log (i.e., [`ConfigLogging::File`]), then the requested path _must_ be
-    /// the string `"UNUSED"` and it will be replaced with a file name (in a
-    /// temporary directory) containing `test_name` and other information to make
-    /// the filename likely to be unique across multiple runs (e.g., process id).
-    pub fn new(
-        test_name: &str,
-        initial_config_logging: &ConfigLogging,
-    ) -> LogContext {
-        // See above.  If the caller requested a file path, assert that the path
-        // matches our sentinel (just to improve debuggability -- otherwise
-        // people might be pretty confused about where the logs went).  Then
-        // override the path with one uniquely generated for this test.
-        // TODO-developer allow keeping the logs in successful cases with an
-        // environment variable or other flag.
-        let (log_path, log_config) = match initial_config_logging {
-            ConfigLogging::File { level, path: dummy_path, if_exists } => {
-                assert_eq!(
-                    dummy_path, "UNUSED",
-                    "for test suite logging configuration, when mode = \
-                     \"file\" is used, the path MUST be the sentinel string \
-                     \"UNUSED\".  It will be replaced with a unique path for \
-                     each test."
-                );
-                let new_path = log_file_for_test(test_name);
-                eprintln!("log file: {}", new_path);
-                (
-                    Some(new_path.clone()),
-                    ConfigLogging::File {
-                        level: level.clone(),
-                        path: new_path,
-                        if_exists: if_exists.clone(),
-                    },
-                )
-            }
-            other_config => (None, other_config.clone()),
-        };
-
-        let log = log_config.to_logger(test_name).unwrap();
-        LogContext { log, test_name: test_name.to_owned(), log_path }
-    }
-
-    /// Returns the name of the test.
-    #[inline]
-    pub fn test_name(&self) -> &str {
-        &self.test_name
-    }
-
-    /// Removes the log file, if this was a file-based logger.
-    pub fn cleanup_successful(self) {
-        if let Some(ref log_path) = self.log_path {
-            fs::remove_file(log_path).unwrap();
-        }
     }
 }
 
@@ -465,8 +337,6 @@ impl LogContext {
 pub struct TestContext<Context: ServerContext> {
     pub client_testctx: ClientTestContext,
     pub server: HttpServer<Context>,
-    pub log: Logger,
-    log_context: Option<LogContext>,
 }
 
 impl<Context: ServerContext> TestContext<Context> {
@@ -481,8 +351,6 @@ impl<Context: ServerContext> TestContext<Context> {
         api: ApiDescription<Context>,
         private: Context,
         config_dropshot: &ConfigDropshot,
-        log_context: Option<LogContext>,
-        log: Logger,
     ) -> TestContext<Context> {
         assert_eq!(
             0,
@@ -491,16 +359,14 @@ impl<Context: ServerContext> TestContext<Context> {
         );
 
         // Set up the server itself.
-        let server =
-            HttpServerStarter::new(&config_dropshot, api, private, &log)
-                .unwrap()
-                .start();
+        let server = HttpServerStarter::new(&config_dropshot, api, private)
+            .unwrap()
+            .start();
 
         let server_addr = server.local_addr();
-        let client_log = log.new(o!("http_client" => "dropshot test suite"));
-        let client_testctx = ClientTestContext::new(server_addr, client_log);
+        let client_testctx = ClientTestContext::new(server_addr);
 
-        TestContext { client_testctx, server, log, log_context }
+        TestContext { client_testctx, server }
     }
 
     /// Requests a graceful shutdown of the server, waits for that to complete,
@@ -508,9 +374,6 @@ impl<Context: ServerContext> TestContext<Context> {
     // TODO-cleanup: is there an async analog to Drop?
     pub async fn teardown(self) {
         self.server.close().await.expect("server stopped with an error");
-        if let Some(log_context) = self.log_context {
-            log_context.cleanup_successful();
-        }
     }
 }
 

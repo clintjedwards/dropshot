@@ -16,37 +16,43 @@ use debug_ignore::DebugIgnore;
 use futures::future::{
     BoxFuture, FusedFuture, FutureExt, Shared, TryFutureExt,
 };
-use futures::lock::Mutex;
-use futures::stream::{Stream, StreamExt};
-use hyper::server::{
-    conn::{AddrIncoming, AddrStream},
-    Server,
+use futures::{
+    lock::Mutex,
+    stream::{Stream, StreamExt},
 };
-use hyper::service::Service;
-use hyper::Body;
-use hyper::Request;
-use hyper::Response;
+use hyper::{
+    server::{
+        conn::{AddrIncoming, AddrStream},
+        Server,
+    },
+    service::Service,
+    Body, Request, Response,
+};
 use rustls;
 use scopeguard::{guard, ScopeGuard};
-use std::convert::TryFrom;
-use std::future::Future;
-use std::mem;
-use std::net::SocketAddr;
-use std::num::NonZeroU32;
-use std::panic;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use tokio::io::ReadBuf;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
+use std::{
+    convert::TryFrom,
+    future::Future,
+    mem,
+    net::SocketAddr,
+    num::NonZeroU32,
+    panic,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
+use tokio::{
+    io::ReadBuf,
+    net::{TcpListener, TcpStream},
+    sync::oneshot,
+};
 use tokio_rustls::{server::TlsStream, TlsAcceptor};
+use tracing::{error, info, span, trace, warn, Level};
 use uuid::Uuid;
 use waitgroup::WaitGroup;
 
 use crate::config::HandlerTaskMode;
 use crate::RequestInfo;
-use slog::Logger;
 
 // TODO Replace this with something else?
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
@@ -67,8 +73,6 @@ pub struct DropshotState<C: ServerContext> {
     pub config: ServerConfig,
     /// request router
     pub router: HttpRouter<C>,
-    /// server-wide log handle
-    pub log: Logger,
     /// bound local address for the server.
     pub local_addr: SocketAddr,
     /// Identifies how to accept TLS connections
@@ -111,16 +115,14 @@ impl<C: ServerContext> HttpServerStarter<C> {
         config: &ConfigDropshot,
         api: ApiDescription<C>,
         private: C,
-        log: &Logger,
     ) -> Result<HttpServerStarter<C>, GenericError> {
-        Self::new_with_tls(config, api, private, log, None)
+        Self::new_with_tls(config, api, private, None)
     }
 
     pub fn new_with_tls(
         config: &ConfigDropshot,
         api: ApiDescription<C>,
         private: C,
-        log: &Logger,
         tls: Option<ConfigTls>,
     ) -> Result<HttpServerStarter<C>, GenericError> {
         let server_config = ServerConfig {
@@ -140,7 +142,6 @@ impl<C: ServerContext> HttpServerStarter<C> {
                         server_config,
                         api,
                         private,
-                        log,
                         tls,
                         handler_waitgroup.worker(),
                     )?;
@@ -158,7 +159,6 @@ impl<C: ServerContext> HttpServerStarter<C> {
                         server_config,
                         api,
                         private,
-                        log,
                         handler_waitgroup.worker(),
                     )?;
                 HttpServerStarter {
@@ -171,10 +171,7 @@ impl<C: ServerContext> HttpServerStarter<C> {
         };
 
         for (path, method, _) in &starter.app_state.router {
-            debug!(starter.app_state.log, "registered endpoint";
-                "method" => &method,
-                "path" => &path
-            );
+            trace!(method = &method, path = &path, "registered endpoint");
         }
 
         Ok(starter)
@@ -182,18 +179,15 @@ impl<C: ServerContext> HttpServerStarter<C> {
 
     pub fn start(self) -> HttpServer<C> {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        let log_close = self.app_state.log.new(o!());
         let join_handle = match self.wrapped {
-            WrappedHttpServerStarter::Http(http) => http.start(rx, log_close),
-            WrappedHttpServerStarter::Https(https) => {
-                https.start(rx, log_close)
-            }
+            WrappedHttpServerStarter::Http(http) => http.start(rx),
+            WrappedHttpServerStarter::Https(https) => https.start(rx),
         }
         .map(|r| {
             r.map_err(|e| format!("waiting for server: {e}"))?
                 .map_err(|e| format!("server stopped: {e}"))
         });
-        info!(self.app_state.log, "listening");
+        trace!("listening");
 
         let handler_waitgroup = self.handler_waitgroup;
         let join_handle = async move {
@@ -207,27 +201,18 @@ impl<C: ServerContext> HttpServerStarter<C> {
         #[cfg(feature = "usdt-probes")]
         let probe_registration = match usdt::register_probes() {
             Ok(_) => {
-                debug!(
-                    self.app_state.log,
-                    "successfully registered DTrace USDT probes"
-                );
+                trace!("successfully registered DTrace USDT probes");
                 ProbeRegistration::Succeeded
             }
             Err(e) => {
                 let msg = e.to_string();
-                error!(
-                    self.app_state.log,
-                    "failed to register DTrace USDT probes: {}", msg
-                );
+                error!("failed to register DTrace USDT probes: {}", msg);
                 ProbeRegistration::Failed(msg)
             }
         };
         #[cfg(not(feature = "usdt-probes"))]
         let probe_registration = {
-            debug!(
-                self.app_state.log,
-                "DTrace USDT probes compiled out, not registering"
-            );
+            trace!("DTrace USDT probes compiled out, not registering");
             ProbeRegistration::Disabled
         };
 
@@ -258,13 +243,12 @@ impl<C: ServerContext> InnerHttpServerStarter<C> {
     fn start(
         self,
         close_signal: tokio::sync::oneshot::Receiver<()>,
-        log_close: Logger,
     ) -> tokio::task::JoinHandle<Result<(), hyper::Error>> {
         let graceful = self.0.with_graceful_shutdown(async move {
             close_signal.await.expect(
                 "dropshot server shutting down without invoking close()",
             );
-            info!(log_close, "received request to begin graceful shutdown");
+            info!("received request to begin graceful shutdown");
         });
 
         tokio::spawn(graceful)
@@ -279,7 +263,6 @@ impl<C: ServerContext> InnerHttpServerStarter<C> {
         server_config: ServerConfig,
         api: ApiDescription<C>,
         private: C,
-        log: &Logger,
         handler_waitgroup_worker: waitgroup::Worker,
     ) -> Result<InnerHttpServerStarterNewReturn<C>, hyper::Error> {
         let incoming = AddrIncoming::bind(&config.bind_address)?;
@@ -289,7 +272,6 @@ impl<C: ServerContext> InnerHttpServerStarter<C> {
             private,
             config: server_config,
             router: api.into_router(),
-            log: log.new(o!("local_addr" => local_addr)),
             local_addr,
             tls_acceptor: None,
             handler_waitgroup_worker: DebugIgnore(handler_waitgroup_worker),
@@ -373,13 +355,11 @@ struct HttpsAcceptor {
 
 impl HttpsAcceptor {
     pub fn new(
-        log: slog::Logger,
         tls_acceptor: Arc<Mutex<TlsAcceptor>>,
         tcp_listener: TcpListener,
     ) -> HttpsAcceptor {
         HttpsAcceptor {
             stream: Box::new(Box::pin(Self::new_stream(
-                log,
                 tls_acceptor,
                 tcp_listener,
             ))),
@@ -387,7 +367,6 @@ impl HttpsAcceptor {
     }
 
     fn new_stream(
-        log: slog::Logger,
         tls_acceptor: Arc<Mutex<TlsAcceptor>>,
         tcp_listener: TcpListener,
     ) -> impl Stream<Item = std::io::Result<TlsConn>> {
@@ -411,7 +390,7 @@ impl HttpsAcceptor {
                                 // different error types, since this may contain
                                 // useful things like "your certificate is
                                 // invalid"
-                                warn!(log, "tls accept err: {}", e);
+                                warn!(error = %e, "tls accept err");
                             },
                         }
                     },
@@ -547,13 +526,12 @@ impl<C: ServerContext> InnerHttpsServerStarter<C> {
     fn start(
         self,
         close_signal: tokio::sync::oneshot::Receiver<()>,
-        log_close: Logger,
     ) -> tokio::task::JoinHandle<Result<(), hyper::Error>> {
         let graceful = self.0.with_graceful_shutdown(async move {
             close_signal.await.expect(
                 "dropshot server shutting down without invoking close()",
             );
-            info!(log_close, "received request to begin graceful shutdown");
+            info!("received request to begin graceful shutdown");
         });
 
         tokio::spawn(graceful)
@@ -564,7 +542,6 @@ impl<C: ServerContext> InnerHttpsServerStarter<C> {
         server_config: ServerConfig,
         api: ApiDescription<C>,
         private: C,
-        log: &Logger,
         tls: &ConfigTls,
         handler_waitgroup_worker: waitgroup::Worker,
     ) -> Result<InnerHttpsServerStarterNewReturn<C>, GenericError> {
@@ -582,15 +559,13 @@ impl<C: ServerContext> InnerHttpsServerStarter<C> {
         };
 
         let local_addr = tcp.local_addr()?;
-        let logger = log.new(o!("local_addr" => local_addr));
-        let https_acceptor =
-            HttpsAcceptor::new(logger.clone(), acceptor.clone(), tcp);
+
+        let https_acceptor = HttpsAcceptor::new(acceptor.clone(), tcp);
 
         let app_state = Arc::new(DropshotState {
             private,
             config: server_config,
             router: api.into_router(),
-            log: logger,
             local_addr,
             tls_acceptor: Some(acceptor),
             handler_waitgroup_worker: DebugIgnore(handler_waitgroup_worker),
@@ -763,8 +738,24 @@ async fn http_connection_handle<C: ServerContext>(
     server: Arc<DropshotState<C>>,
     remote_addr: SocketAddr,
 ) -> Result<ServerRequestHandler<C>, GenericError> {
-    info!(server.log, "accepted connection"; "remote_addr" => %remote_addr);
+    trace!(remote_addr = %remote_addr, "accepted connection");
     Ok(ServerRequestHandler::new(server, remote_addr))
+}
+
+fn format_latency(duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    let millis = duration.as_millis();
+    let micros = duration.as_micros();
+
+    if secs > 0 {
+        format!("{}s", secs)
+    } else if millis > 0 {
+        format!("{}ms", millis)
+    } else if micros > 0 {
+        format!("{}μs", micros)
+    } else {
+        format!("{}ns", duration.as_nanos())
+    }
 }
 
 /// Initial entry point for handling a new request to the HTTP server.  This is
@@ -782,13 +773,18 @@ async fn http_request_handle_wrap<C: ServerContext>(
     // themselves.
     let start_time = std::time::Instant::now();
     let request_id = generate_request_id();
-    let request_log = server.log.new(o!(
-        "remote_addr" => remote_addr,
-        "req_id" => request_id.clone(),
-        "method" => request.method().as_str().to_string(),
-        "uri" => format!("{}", request.uri()),
-    ));
-    trace!(request_log, "incoming request");
+
+    let request_span = span!(
+        Level::TRACE,
+        "http_request",
+        remote_addr = %remote_addr,
+        req_id = request_id.clone(),
+        method = request.method().as_str().to_string(),
+        uri = format!("{}", request.uri()),
+    );
+    let _enter = request_span.enter();
+
+    trace!("incoming request");
     #[cfg(feature = "usdt-probes")]
     probes::request__start!(|| {
         let uri = request.uri();
@@ -810,10 +806,11 @@ async fn http_request_handle_wrap<C: ServerContext>(
     // In the case the client disconnects early, the scopeguard allows us
     // to perform extra housekeeping before this task is dropped.
     let on_disconnect = guard((), |_| {
-        let latency_us = start_time.elapsed().as_micros();
+        let latency = start_time.elapsed();
 
-        warn!(request_log, "request handling cancelled (client disconnected)";
-            "latency_us" => latency_us,
+        warn!(
+            latency = format_latency(latency),
+            "request handling cancelled (client disconnected)"
         );
 
         #[cfg(feature = "usdt-probes")]
@@ -831,20 +828,14 @@ async fn http_request_handle_wrap<C: ServerContext>(
         });
     });
 
-    let maybe_response = http_request_handle(
-        server,
-        request,
-        &request_id,
-        request_log.new(o!()),
-        remote_addr,
-    )
-    .await;
+    let maybe_response =
+        http_request_handle(server, request, &request_id, remote_addr).await;
 
     // If `http_request_handle` completed, it means the request wasn't
     // cancelled and we can safely "defuse" the scopeguard.
     let _ = ScopeGuard::into_inner(on_disconnect);
 
-    let latency_us = start_time.elapsed().as_micros();
+    let latency = start_time.elapsed();
     let response = match maybe_response {
         Err(error) => {
             let message_external = error.external_message.clone();
@@ -863,11 +854,12 @@ async fn http_request_handle_wrap<C: ServerContext>(
             });
 
             // TODO-debug: add request and response headers here
-            info!(request_log, "request completed";
-                "response_code" => r.status().as_str(),
-                "latency_us" => latency_us,
-                "error_message_internal" => message_internal,
-                "error_message_external" => message_external,
+            info!(
+                response_code = r.status().as_str(),
+                latency = format_latency(latency),
+                error_message_internal = message_internal,
+                error_message_external = message_external,
+                "request completed"
             );
 
             r
@@ -875,9 +867,10 @@ async fn http_request_handle_wrap<C: ServerContext>(
 
         Ok(response) => {
             // TODO-debug: add request and response headers here
-            info!(request_log, "request completed";
-                "response_code" => response.status().as_str(),
-                "latency_us" => latency_us,
+            info!(
+                response_code = response.status().as_str(),
+                latency = format_latency(latency),
+                "request completed"
             );
 
             #[cfg(feature = "usdt-probes")]
@@ -902,7 +895,6 @@ async fn http_request_handle<C: ServerContext>(
     server: Arc<DropshotState<C>>,
     request: Request<Body>,
     request_id: &str,
-    request_log: Logger,
     remote_addr: std::net::SocketAddr,
 ) -> Result<Response<Body>, HttpError> {
     // TODO-hardening: is it correct to (and do we correctly) read the entire
@@ -921,7 +913,6 @@ async fn http_request_handle<C: ServerContext>(
         path_variables: lookup_result.variables,
         body_content_type: lookup_result.body_content_type,
         request_id: request_id.to_string(),
-        log: request_log,
     };
     let handler = lookup_result.handler;
 
@@ -936,10 +927,8 @@ async fn http_request_handle<C: ServerContext>(
             // Spawn the handler so if we're cancelled, the handler still runs
             // to completion.
             let (tx, rx) = oneshot::channel();
-            let request_log = rqctx.log.clone();
             let worker = server.handler_waitgroup_worker.clone();
             let handler_task = tokio::spawn(async move {
-                let request_log = rqctx.log.clone();
                 let result = handler.handle_request(rqctx, request).await;
 
                 // If this send fails, our spawning task has been cancelled in
@@ -947,14 +936,14 @@ async fn http_request_handle<C: ServerContext>(
                 if let Err(result) = tx.send(result) {
                     match result {
                         Ok(r) => warn!(
-                            request_log, "request completed after handler was already cancelled";
-                            "response_code" => r.status().as_str(),
+                            response_code = r.status().as_str(),
+                            "request completed after handler was already cancelled"
                         ),
                         Err(error) => {
-                            warn!(request_log, "request completed after handler was already cancelled";
-                                "response_code" => error.status_code.as_str(),
-                                "error_message_internal" => error.external_message,
-                                "error_message_external" => error.internal_message,
+                            warn!(response_code = error.status_code.as_str(),
+                                error_message_internal = error.external_message,
+                                error_message_external = error.internal_message,
+                                "request completed after handler was already cancelled"
                             );
                         }
                     }
@@ -973,7 +962,7 @@ async fn http_request_handle<C: ServerContext>(
             match rx.await {
                 Ok(result) => result?,
                 Err(_) => {
-                    error!(request_log, "handler panicked; propogating panic");
+                    error!("handler panicked; propogating panic");
 
                     // To get the panic, we now need to await `handler_task`; we
                     // know it is complete _and_ it failed, because it has
@@ -1000,7 +989,7 @@ async fn http_request_handle<C: ServerContext>(
 // TODO should we encode more information here?  Service?  Instance?  Time up to
 // the hour?
 fn generate_request_id() -> String {
-    format!("{}", Uuid::new_v4())
+    format!("{}", Uuid::now_v7())
 }
 
 /// ServerConnectionHandler is a Hyper Service implementation that forwards
@@ -1107,16 +1096,11 @@ mod test {
     use crate as dropshot;
     use dropshot::endpoint;
     use dropshot::test_util::ClientTestContext;
-    use dropshot::test_util::LogContext;
-    use dropshot::ConfigLogging;
-    use dropshot::ConfigLoggingLevel;
     use dropshot::HttpError;
     use dropshot::HttpResponseOk;
     use dropshot::RequestContext;
     use http::StatusCode;
     use hyper::Method;
-
-    use futures::future::FusedFuture;
 
     #[endpoint {
         method = GET,
@@ -1128,37 +1112,20 @@ mod test {
         Ok(HttpResponseOk(3))
     }
 
-    struct TestConfig {
-        log_context: LogContext,
-    }
-
-    impl TestConfig {
-        fn log(&self) -> &slog::Logger {
-            &self.log_context.log
-        }
-    }
-
-    fn create_test_server() -> (HttpServer<i32>, TestConfig) {
+    fn create_test_server() -> HttpServer<i32> {
         let config_dropshot = ConfigDropshot::default();
 
         let mut api = ApiDescription::new();
         api.register(handler).unwrap();
 
-        let config_logging =
-            ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Warn };
-        let log_context = LogContext::new("test server", &config_logging);
-        let log = &log_context.log;
+        let server =
+            HttpServerStarter::new(&config_dropshot, api, 0).unwrap().start();
 
-        let server = HttpServerStarter::new(&config_dropshot, api, 0, log)
-            .unwrap()
-            .start();
-
-        (server, TestConfig { log_context })
+        server
     }
 
-    async fn single_client_request(addr: SocketAddr, log: &slog::Logger) {
-        let client_log = log.new(o!("http_client" => "dropshot test suite"));
-        let client_testctx = ClientTestContext::new(addr, client_log);
+    async fn single_client_request(addr: SocketAddr) {
+        let client_testctx = ClientTestContext::new(addr);
         tokio::task::spawn(async move {
             let response = client_testctx
                 .make_request(
@@ -1177,8 +1144,8 @@ mod test {
 
     #[tokio::test]
     async fn test_server_run_then_close() {
-        let (mut server, config) = create_test_server();
-        let client = single_client_request(server.local_addr(), config.log());
+        let mut server = create_test_server();
+        let client = single_client_request(server.local_addr());
 
         futures::select! {
             _ = client.fuse() => {},
@@ -1191,7 +1158,7 @@ mod test {
 
     #[tokio::test]
     async fn test_drop_server_without_close_okay() {
-        let (server, _) = create_test_server();
+        let server = create_test_server();
         std::mem::drop(server);
     }
 }

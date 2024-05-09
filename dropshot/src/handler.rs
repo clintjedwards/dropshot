@@ -37,10 +37,10 @@ use super::http_util::CONTENT_TYPE_JSON;
 use super::http_util::CONTENT_TYPE_OCTET_STREAM;
 use super::server::DropshotState;
 use super::server::ServerContext;
-use crate::api_description::ApiEndpointBodyContentType;
-use crate::api_description::ApiEndpointHeader;
-use crate::api_description::ApiEndpointResponse;
-use crate::api_description::ApiSchemaGenerator;
+use crate::api_description::{
+    ApiEndpointBodyContentType, ApiEndpointHeader, ApiEndpointResponse,
+    ApiSchemaGenerator,
+};
 use crate::pagination::PaginationParams;
 use crate::router::VariableSet;
 use crate::schema_util::make_subschema_for;
@@ -49,23 +49,20 @@ use crate::schema_util::ReferenceVisitor;
 use crate::to_map::to_map;
 
 use async_trait::async_trait;
-use http::HeaderMap;
-use http::StatusCode;
-use hyper::Body;
-use hyper::Response;
+use http::{HeaderMap, StatusCode};
+use hyper::{Body, Response};
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use slog::Logger;
-use std::cmp::min;
-use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::fmt::Result as FmtResult;
-use std::future::Future;
-use std::marker::PhantomData;
-use std::num::NonZeroU32;
-use std::sync::Arc;
+use std::{
+    cmp::min,
+    convert::TryFrom,
+    fmt::{Debug, Formatter, Result as FmtResult},
+    future::Future,
+    marker::PhantomData,
+    num::NonZeroU32,
+    sync::Arc,
+};
 
 /// Type alias for the result returned by HTTP handler functions.
 pub type HttpHandlerResult = Result<Response<Body>, HttpError>;
@@ -81,9 +78,6 @@ pub struct RequestContext<Context: ServerContext> {
     pub body_content_type: ApiEndpointBodyContentType,
     /// unique id assigned to this request
     pub request_id: String,
-    /// logger for this specific request
-    pub log: Logger,
-
     /// basic request information (method, URI, etc.)
     pub request: RequestInfo,
 }

@@ -7,14 +7,12 @@ use dropshot::{
     ConfigDropshot, ConfigTls, HandlerTaskMode, HttpResponseOk,
     HttpServerStarter,
 };
-use slog::{o, Logger};
 use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 pub mod common;
-use common::create_log_context;
 
 use crate::common::generate_tls_key;
 
@@ -105,11 +103,7 @@ fn make_https_client<
     hyper::Client::builder().build(https_connector)
 }
 
-fn make_server(
-    log: &Logger,
-    cert_file: &Path,
-    key_file: &Path,
-) -> HttpServerStarter<i32> {
+fn make_server(cert_file: &Path, key_file: &Path) -> HttpServerStarter<i32> {
     let config = ConfigDropshot {
         bind_address: "127.0.0.1:0".parse().unwrap(),
         request_body_max_bytes: 1024,
@@ -123,14 +117,13 @@ fn make_server(
         &config,
         dropshot::ApiDescription::new(),
         0,
-        log,
         config_tls,
     )
     .unwrap()
 }
 
 fn make_pki_verifier(
-    certs: &Vec<rustls::pki_types::CertificateDer>,
+    certs: &[rustls::pki_types::CertificateDer],
 ) -> Arc<impl rustls::client::danger::ServerCertVerifier> {
     let mut root_store = rustls::RootCertStore { roots: vec![] };
     root_store.add(certs[certs.len() - 1].clone()).expect("adding root cert");
@@ -141,14 +134,11 @@ fn make_pki_verifier(
 
 #[tokio::test]
 async fn test_tls_certificate_loading() {
-    let logctx = create_log_context("test_tls_certificate_loading");
-    let log = logctx.log.new(o!());
-
     // Generate key for the server
     let (certs, key) = common::generate_tls_key();
     let (cert_file, key_file) = common::tls_key_to_file(&certs, &key);
 
-    let server = make_server(&log, cert_file.path(), key_file.path()).start();
+    let server = make_server(cert_file.path(), key_file.path()).start();
     let port = server.local_addr().port();
 
     let uri: hyper::Uri =
@@ -190,20 +180,15 @@ async fn test_tls_certificate_loading() {
     assert_eq!(verifier_called.load(Ordering::SeqCst), 1);
 
     server.close().await.unwrap();
-
-    logctx.cleanup_successful();
 }
 
 #[tokio::test]
 async fn test_tls_only() {
-    let logctx = create_log_context("test_tls_only");
-    let log = logctx.log.new(o!());
-
     // Generate key for the server
     let (certs, key) = common::generate_tls_key();
     let (cert_file, key_file) = common::tls_key_to_file(&certs, &key);
 
-    let server = make_server(&log, cert_file.path(), key_file.path()).start();
+    let server = make_server(cert_file.path(), key_file.path()).start();
     let port = server.local_addr().port();
 
     let https_uri: hyper::Uri =
@@ -240,20 +225,15 @@ async fn test_tls_only() {
     https_client.request(https_request).await.unwrap();
 
     server.close().await.unwrap();
-
-    logctx.cleanup_successful();
 }
 
 #[tokio::test]
 async fn test_tls_refresh_certificates() {
-    let logctx = create_log_context("test_tls_refresh_certificates");
-    let log = logctx.log.new(o!());
-
     // Generate key for the server
     let (certs, key) = generate_tls_key();
     let (cert_file, key_file) = common::tls_key_to_file(&certs, &key);
 
-    let server = make_server(&log, cert_file.path(), key_file.path()).start();
+    let server = make_server(cert_file.path(), key_file.path()).start();
     let port = server.local_addr().port();
 
     let https_uri: hyper::Uri =
@@ -297,7 +277,6 @@ async fn test_tls_refresh_certificates() {
     https_client.request(https_request_maker()).await.unwrap();
 
     server.close().await.unwrap();
-    logctx.cleanup_successful();
 }
 
 fn make_cert_verifier(
@@ -338,14 +317,11 @@ fn make_cert_verifier(
 
 #[tokio::test]
 async fn test_tls_aborted_negotiation() {
-    let logctx = create_log_context("test_tls_aborted_negotiation");
-    let log = logctx.log.new(o!());
-
     // Generate key for the server
     let (certs, key) = common::generate_tls_key();
     let (cert_file, key_file) = common::tls_key_to_file(&certs, &key);
 
-    let server = make_server(&log, cert_file.path(), key_file.path()).start();
+    let server = make_server(cert_file.path(), key_file.path()).start();
     let port = server.local_addr().port();
 
     let uri: hyper::Uri =
@@ -383,8 +359,6 @@ async fn test_tls_aborted_negotiation() {
     client.get(uri.clone()).await.unwrap();
 
     server.close().await.unwrap();
-
-    logctx.cleanup_successful();
 }
 
 #[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -415,9 +389,6 @@ async fn tls_check_handler(
 
 #[tokio::test]
 async fn test_server_is_https() {
-    let logctx = create_log_context("test_server_is_https");
-    let log = logctx.log.new(o!());
-
     // Generate key for the server
     let (certs, key) = common::generate_tls_key();
     let (cert_file, key_file) = common::tls_key_to_file(&certs, &key);
@@ -433,10 +404,9 @@ async fn test_server_is_https() {
     });
     let mut api = dropshot::ApiDescription::new();
     api.register(tls_check_handler).unwrap();
-    let server =
-        HttpServerStarter::new_with_tls(&config, api, 0, &log, config_tls)
-            .unwrap()
-            .start();
+    let server = HttpServerStarter::new_with_tls(&config, api, 0, config_tls)
+        .unwrap()
+        .start();
     let port = server.local_addr().port();
 
     let https_client = make_https_client(make_pki_verifier(&certs));
@@ -460,8 +430,6 @@ async fn test_server_is_https() {
     assert_eq!(res.status(), hyper::StatusCode::BAD_REQUEST);
 
     server.close().await.unwrap();
-
-    logctx.cleanup_successful();
 }
 
 #[tokio::test]
@@ -469,7 +437,7 @@ async fn test_server_is_http() {
     let mut api = dropshot::ApiDescription::new();
     api.register(tls_check_handler).unwrap();
 
-    let testctx = common::test_setup("test_server_is_http", api);
+    let testctx = common::test_setup(api);
 
     // Expect request with tls=false to pass with plain http server
     testctx

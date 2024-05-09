@@ -1,28 +1,19 @@
 // Copyright 2020 Oxide Computer Company
 //! Common facilities for automated testing.
 
-use dropshot::test_util::LogContext;
 use dropshot::test_util::TestContext;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingIfExists;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HandlerTaskMode;
 use dropshot::ServerContext;
-use slog::o;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
-pub fn test_setup(
-    test_name: &str,
-    api: ApiDescription<usize>,
-) -> TestContext<usize> {
-    test_setup_with_context(test_name, api, 0_usize, HandlerTaskMode::Detached)
+pub fn test_setup(api: ApiDescription<usize>) -> TestContext<usize> {
+    test_setup_with_context(api, 0_usize, HandlerTaskMode::Detached)
 }
 
 pub fn test_setup_with_context<Context: ServerContext>(
-    test_name: &str,
     api: ApiDescription<Context>,
     ctx: Context,
     default_handler_task_mode: HandlerTaskMode,
@@ -37,18 +28,7 @@ pub fn test_setup_with_context<Context: ServerContext>(
     let config_dropshot: ConfigDropshot =
         ConfigDropshot { default_handler_task_mode, ..Default::default() };
 
-    let logctx = create_log_context(test_name);
-    let log = logctx.log.new(o!());
-    TestContext::new(api, ctx, &config_dropshot, Some(logctx), log)
-}
-
-pub fn create_log_context(test_name: &str) -> LogContext {
-    let log_config = ConfigLogging::File {
-        level: ConfigLoggingLevel::Debug,
-        path: "UNUSED".into(),
-        if_exists: ConfigLoggingIfExists::Fail,
-    };
-    LogContext::new(test_name, &log_config)
+    TestContext::new(api, ctx, &config_dropshot)
 }
 
 struct TestCertificateChain {

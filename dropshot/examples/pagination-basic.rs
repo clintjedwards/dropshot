@@ -17,8 +17,6 @@
 use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::EmptyScanParams;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
@@ -121,14 +119,9 @@ async fn main() -> Result<(), String> {
         bind_address: SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
         ..Default::default()
     };
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Debug };
-    let log = config_logging
-        .to_logger("example-pagination-basic")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
     let mut api = ApiDescription::new();
     api.register(example_list_projects).unwrap();
-    let server = HttpServerStarter::new(&config_dropshot, api, ctx, &log)
+    let server = HttpServerStarter::new(&config_dropshot, api, ctx)
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
     server.await

@@ -5,8 +5,6 @@
 use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingLevel;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpServerStarter;
@@ -21,11 +19,6 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let config_dropshot: ConfigDropshot = Default::default();
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Info };
-    let log = config_logging
-        .to_logger("example-self-referential")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
 
     let mut api = ApiDescription::new();
     api.register(example_api_get_counter).unwrap();
@@ -33,10 +26,9 @@ async fn main() -> Result<(), String> {
     let api_context = Arc::new(ExampleContext::new());
 
     // Set up the server.
-    let server =
-        HttpServerStarter::new(&config_dropshot, api, api_context, &log)
-            .map_err(|error| format!("failed to create server: {}", error))?
-            .start();
+    let server = HttpServerStarter::new(&config_dropshot, api, api_context)
+        .map_err(|error| format!("failed to create server: {}", error))?
+        .start();
     let shutdown = server.wait_for_shutdown();
 
     tokio::task::spawn(async move {

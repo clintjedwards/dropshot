@@ -6,9 +6,8 @@
 //! proper tagging innate.
 
 use dropshot::{
-    endpoint, ApiDescription, ConfigLogging, ConfigLoggingLevel,
-    EndpointTagPolicy, HttpError, HttpResponseOk, HttpServerStarter,
-    RequestContext, TagConfig, TagDetails, TagExternalDocs,
+    endpoint, ApiDescription, EndpointTagPolicy, HttpError, HttpResponseOk,
+    HttpServerStarter, RequestContext, TagConfig, TagDetails, TagExternalDocs,
 };
 
 #[endpoint {
@@ -52,14 +51,6 @@ async fn main() -> Result<(), String> {
     // port.
     let config_dropshot = Default::default();
 
-    // For simplicity, we'll configure an "info"-level logger that writes to
-    // stderr assuming that it's a terminal.
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Info };
-    let log = config_logging
-        .to_logger("example-basic")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
-
     // Build a description of the API -- in this case it's not much of an API!.
     let mut api = ApiDescription::new().tag_config(TagConfig {
         allow_other_tags: false,
@@ -99,7 +90,7 @@ async fn main() -> Result<(), String> {
     api.register(get_fryism).unwrap();
 
     // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, (), &log)
+    let server = HttpServerStarter::new(&config_dropshot, api, ())
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
 

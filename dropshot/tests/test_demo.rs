@@ -105,7 +105,7 @@ fn demo_api() -> ApiDescription<usize> {
 #[tokio::test]
 async fn test_demo1() {
     let api = demo_api();
-    let testctx = common::test_setup("demo1", api);
+    let testctx = common::test_setup(api);
 
     let private = testctx.server.app_private();
     assert_eq!(*private, 0);
@@ -133,7 +133,7 @@ async fn test_demo1() {
 #[tokio::test]
 async fn test_demo2query() {
     let api = demo_api();
-    let testctx = common::test_setup("demo2query", api);
+    let testctx = common::test_setup(api);
 
     // Test case: optional field missing
     let mut response = testctx
@@ -222,7 +222,7 @@ async fn test_demo2query() {
 #[tokio::test]
 async fn test_demo2json() {
     let api = demo_api();
-    let testctx = common::test_setup("demo2json", api);
+    let testctx = common::test_setup(api);
 
     // Test case: optional field
     let input = DemoJsonBody { test1: "bar".to_string(), test2: None };
@@ -335,7 +335,7 @@ async fn test_demo2json() {
 #[tokio::test]
 async fn test_demo2urlencoded() {
     let api = demo_api();
-    let testctx = common::test_setup("demo2urlencoded", api);
+    let testctx = common::test_setup(api);
 
     // Test case: optional field
     let input = DemoJsonBody { test1: "bar".to_string(), test2: None };
@@ -435,7 +435,7 @@ async fn test_demo2urlencoded() {
 #[tokio::test]
 async fn test_demo3json() {
     let api = demo_api();
-    let testctx = common::test_setup("demo3json", api);
+    let testctx = common::test_setup(api);
 
     // Test case: everything filled in.
     let json_input = DemoJsonBody { test1: "bart".to_string(), test2: Some(0) };
@@ -498,7 +498,7 @@ async fn test_demo3json() {
 #[tokio::test]
 async fn test_demo_path_param_string() {
     let api = demo_api();
-    let testctx = common::test_setup("demo_path_param_string", api);
+    let testctx = common::test_setup(api);
 
     // Simple error cases.  All of these should produce 404 "Not Found" errors.
     let bad_paths = vec![
@@ -566,7 +566,7 @@ async fn test_demo_path_param_string() {
 #[tokio::test]
 async fn test_demo_path_param_uuid() {
     let api = demo_api();
-    let testctx = common::test_setup("demo_path_param_uuid", api);
+    let testctx = common::test_setup(api);
 
     // Error case: not a valid uuid.  The other error cases are the same as for
     // the string-valued path parameter and they're tested above.
@@ -609,7 +609,7 @@ async fn test_demo_path_param_uuid() {
 #[tokio::test]
 async fn test_demo_path_param_u32() {
     let api = demo_api();
-    let testctx = common::test_setup("demo_path_param_u32", api);
+    let testctx = common::test_setup(api);
 
     // Error case: not a valid u32.  Other error cases are the same as for the
     // string-valued path parameter and they're tested above.
@@ -652,7 +652,7 @@ async fn test_demo_path_param_u32() {
 #[tokio::test]
 async fn test_untyped_body() {
     let api = demo_api();
-    let testctx = common::test_setup("test_untyped_body", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     // Error case: body too large.
@@ -738,7 +738,7 @@ async fn test_untyped_body() {
 #[tokio::test]
 async fn test_streaming_body() {
     let api = demo_api();
-    let testctx = common::test_setup("test_streaming_body", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     // Success case: empty body
@@ -789,7 +789,7 @@ async fn test_streaming_body() {
 #[tokio::test]
 async fn test_raw_request() {
     let api = demo_api();
-    let testctx = common::test_setup("tet_raw_request", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     // Success case
@@ -815,10 +815,10 @@ async fn test_raw_request() {
 #[tokio::test]
 async fn test_delete_request() {
     let api = demo_api();
-    let testctx = common::test_setup("test_delete_request", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
-    object_delete(&client, "/testing/delete").await;
+    object_delete(client, "/testing/delete").await;
 
     testctx.teardown().await;
 }
@@ -827,7 +827,7 @@ async fn test_delete_request() {
 #[tokio::test]
 async fn test_head_request() {
     let api = demo_api();
-    let testctx = common::test_setup("test_head_request", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     let mut hr = client
@@ -865,7 +865,7 @@ async fn test_head_request() {
 #[tokio::test]
 async fn test_header_request() {
     let api = demo_api();
-    let testctx = common::test_setup("test_header_request", api);
+    let testctx = common::test_setup(api);
     let response = testctx
         .client_testctx
         .make_request(
@@ -898,7 +898,7 @@ async fn test_header_request() {
 #[tokio::test]
 async fn test_302_bogus() {
     let api = demo_api();
-    let testctx = common::test_setup("test_302_bogus", api);
+    let testctx = common::test_setup(api);
     let error = testctx
         .client_testctx
         .make_request_error(
@@ -914,7 +914,7 @@ async fn test_302_bogus() {
 #[tokio::test]
 async fn test_302_found() {
     let api = demo_api();
-    let testctx = common::test_setup("test_302_found", api);
+    let testctx = common::test_setup(api);
     let mut response = testctx
         .client_testctx
         .make_request(
@@ -939,7 +939,7 @@ async fn test_302_found() {
 #[tokio::test]
 async fn test_303_see_other() {
     let api = demo_api();
-    let testctx = common::test_setup("test_303_see_other", api);
+    let testctx = common::test_setup(api);
     let mut response = testctx
         .client_testctx
         .make_request(
@@ -964,7 +964,7 @@ async fn test_303_see_other() {
 #[tokio::test]
 async fn test_307_temporary_redirect() {
     let api = demo_api();
-    let testctx = common::test_setup("test_307_temporary_redirect", api);
+    let testctx = common::test_setup(api);
     let mut response = testctx
         .client_testctx
         .make_request(
@@ -990,7 +990,7 @@ async fn test_307_temporary_redirect() {
 #[tokio::test]
 async fn test_demo_websocket() {
     let api = demo_api();
-    let testctx = common::test_setup("demo_websocket", api);
+    let testctx = common::test_setup(api);
 
     let path = format!(
         "ws://{}/testing/websocket",
@@ -1008,7 +1008,7 @@ async fn test_demo_websocket() {
 #[tokio::test]
 async fn test_request_compat() {
     let api = demo_api();
-    let testctx = common::test_setup("test_request_compat", api);
+    let testctx = common::test_setup(api);
     let mut response = testctx
         .client_testctx
         .make_request(
@@ -1027,7 +1027,7 @@ async fn test_request_compat() {
 #[tokio::test]
 async fn test_request_remote_addr() {
     let api = demo_api();
-    let testctx = common::test_setup("test_request_remote_addr", api);
+    let testctx = common::test_setup(api);
     let laddr = testctx.server.local_addr();
     let mut response = testctx
         .client_testctx
@@ -1376,7 +1376,7 @@ async fn demo_handler_307_temporary_redirect(
     path = "/testing/websocket"
 }]
 async fn demo_handler_websocket(
-    rqctx: RequestCtx,
+    _rqctx: RequestCtx,
     upgraded: WebsocketConnection,
 ) -> WebsocketChannelResult {
     let mut ws_stream = WebSocketStream::from_raw_socket(
@@ -1386,8 +1386,7 @@ async fn demo_handler_websocket(
     )
     .await;
     ws_stream.send(Message::Text("hello client".to_string())).await.unwrap();
-    let msg = ws_stream.next().await.unwrap().unwrap();
-    slog::info!(rqctx.log, "{}", msg);
+    ws_stream.next().await.unwrap().unwrap();
     Ok(())
 }
 

@@ -21,8 +21,8 @@ use hyper::Body;
 use schemars::JsonSchema;
 use serde_json::json;
 use sha1::{Digest, Sha1};
-use slog::Logger;
 use std::future::Future;
+use tracing::{debug, error};
 
 /// WebsocketUpgrade is an ExclusiveExtractor used to upgrade and handle an HTTP
 /// request as a websocket when present in a Dropshot endpoint's function
@@ -65,7 +65,6 @@ struct WebsocketUpgradeInner {
     upgrade_fut: OnUpgrade,
     accept_key: String,
     route: String,
-    ws_log: Logger,
 }
 
 // Originally copied from tungstenite-0.17.3 (rather than taking a whole
@@ -86,7 +85,7 @@ fn derive_accept_key(request_key: &[u8]) -> String {
 #[async_trait]
 impl ExclusiveExtractor for WebsocketUpgrade {
     async fn from_request<Context: ServerContext>(
-        rqctx: &RequestContext<Context>,
+        _rqctx: &RequestContext<Context>,
         request: hyper::Request<hyper::Body>,
     ) -> Result<Self, HttpError> {
         if !request
@@ -147,19 +146,8 @@ impl ExclusiveExtractor for WebsocketUpgrade {
 
         let route = request.uri().to_string();
         let upgrade_fut = hyper::upgrade::on(request);
-        // note: this is just used in our wrapper in `handle`; if a user wants
-        // to slog in their future, they can obtain it from rqctx the same way
-        // they do in any other endpoint & let it get `move`d into the closure
-        let ws_log = rqctx.log.new(o!(
-            "upgrade" => "websocket".to_string(),
-        ));
 
-        Ok(Self(Some(WebsocketUpgradeInner {
-            upgrade_fut,
-            accept_key,
-            ws_log,
-            route,
-        })))
+        Ok(Self(Some(WebsocketUpgradeInner { upgrade_fut, accept_key, route })))
     }
 
     fn metadata(
@@ -194,14 +182,13 @@ impl WebsocketUpgrade {
     ///     id: dropshot::Path<String>,
     ///     websock: dropshot::WebsocketUpgrade,
     /// ) -> dropshot::WebsocketEndpointResult {
-    ///     let logger = rqctx.log.new(slog::o!());
     ///     websock.handle(move |upgraded| async move {
-    ///         slog::info!(logger, "Entered handler for ID {}", id.into_inner());
+    ///         tracing::info!("Entered handler for ID {}", id.into_inner());
     ///         use futures::stream::StreamExt;
     ///         let mut ws_stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
     ///             upgraded.into_inner(), tokio_tungstenite::tungstenite::protocol::Role::Server, None
     ///         ).await;
-    ///         slog::info!(logger, "Received from websocket: {:?}", ws_stream.next().await);
+    ///         tracing::info!("Received from websocket: {:?}", ws_stream.next().await);
     ///         Ok(())
     ///     })
     /// }
@@ -220,12 +207,7 @@ impl WebsocketUpgrade {
             None => Err(HttpError::for_internal_error(
                 "Tried to handle websocket twice".to_string(),
             )),
-            Some(WebsocketUpgradeInner {
-                upgrade_fut,
-                accept_key,
-                ws_log,
-                ..
-            }) => {
+            Some(WebsocketUpgradeInner { upgrade_fut, accept_key, .. }) => {
                 tokio::spawn(async move {
                     match upgrade_fut.await {
                         Ok(upgrade) => {
@@ -233,18 +215,14 @@ impl WebsocketUpgrade {
                                 Ok(x) => Ok(x),
                                 Err(e) => {
                                     error!(
-                                        ws_log,
-                                        "Error returned from handler: {:?}", e
+                                        error = %e, "Error returned from handler"
                                     );
                                     Err(e)
                                 }
                             }
                         }
                         Err(e) => {
-                            error!(
-                                ws_log,
-                                "Error upgrading connection: {:?}", e
-                            );
+                            error!(error = %e, "Error upgrading connection");
                             Err(e.into())
                         }
                     }
@@ -264,10 +242,7 @@ impl WebsocketUpgrade {
 impl Drop for WebsocketUpgrade {
     fn drop(&mut self) {
         if let Some(inner) = self.0.take() {
-            debug!(
-                inner.ws_log,
-                "Didn't handle websocket in route {}", inner.route
-            );
+            debug!("Didn't handle websocket in route {}", inner.route);
         }
     }
 }
@@ -311,7 +286,6 @@ mod tests {
     use waitgroup::WaitGroup;
 
     async fn ws_upg_from_mock_rqctx() -> Result<WebsocketUpgrade, HttpError> {
-        let log = slog::Logger::root(slog::Discard, slog::o!()).new(slog::o!());
         let request = Request::builder()
             .header(http::header::CONNECTION, "Upgrade")
             .header(http::header::UPGRADE, "websocket")
@@ -332,7 +306,6 @@ mod tests {
                         HandlerTaskMode::CancelOnDisconnect,
                 },
                 router: HttpRouter::new(),
-                log: log.clone(),
                 local_addr: SocketAddr::new(
                     IpAddr::V6(Ipv6Addr::LOCALHOST),
                     8080,
@@ -346,7 +319,6 @@ mod tests {
             path_variables: Default::default(),
             body_content_type: Default::default(),
             request_id: "".to_string(),
-            log: log.clone(),
         };
         let fut = WebsocketUpgrade::from_request(&rqctx, request);
         tokio::time::timeout(Duration::from_secs(1), fut)

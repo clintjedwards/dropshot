@@ -9,11 +9,7 @@ use dropshot::test_util::iter_collection;
 use dropshot::test_util::object_get;
 use dropshot::test_util::objects_list_page;
 use dropshot::test_util::ClientTestContext;
-use dropshot::test_util::LogContext;
 use dropshot::ApiDescription;
-use dropshot::ConfigLogging;
-use dropshot::ConfigLoggingIfExists;
-use dropshot::ConfigLoggingLevel;
 use dropshot::EmptyScanParams;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
@@ -45,10 +41,9 @@ use std::time::Instant;
 use subprocess::Exec;
 use subprocess::NullFile;
 use subprocess::Popen;
+use tracing::{info, trace};
 use uuid::Uuid;
 
-#[macro_use]
-extern crate slog;
 #[macro_use]
 extern crate lazy_static;
 
@@ -72,7 +67,7 @@ async fn assert_error(
 
 /// Given an array of integers, check that they're sequential starting at
 /// "offset".
-fn assert_sequence_from(items: &Vec<u16>, offset: u16, count: u16) {
+fn assert_sequence_from(items: &[u16], offset: u16, count: u16) {
     let nchecked = AtomicU16::new(0);
     items.iter().enumerate().for_each(|(i, c)| {
         assert_eq!(*c, (i as u16) + offset);
@@ -193,7 +188,7 @@ async fn api_integers(
 #[tokio::test]
 async fn test_paginate_errors() {
     let api = paginate_api();
-    let testctx = common::test_setup("errors", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     struct ErrorTestCase {
@@ -238,7 +233,7 @@ async fn test_paginate_errors() {
 #[tokio::test]
 async fn test_paginate_basic() {
     let api = paginate_api();
-    let testctx = common::test_setup("basic", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     // "First page" test cases
@@ -317,7 +312,7 @@ async fn test_paginate_basic() {
     loop {
         if let Some(ref next_token) = page.next_page {
             if page.items.len() != expected_max as usize {
-                assert!(page.items.len() > 0);
+                assert!(!page.items.is_empty());
                 assert!(page.items.len() < expected_max as usize);
                 assert_eq!(*page.items.last().unwrap(), std::u16::MAX - 1);
             }
@@ -369,7 +364,7 @@ async fn api_empty(
 #[tokio::test]
 async fn test_paginate_empty() {
     let api = paginate_api();
-    let testctx = common::test_setup("empty", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     let page = objects_list_page::<u16>(client, "/empty").await;
@@ -452,7 +447,7 @@ struct ExtraResultsPage {
 #[tokio::test]
 async fn test_paginate_extra_params() {
     let api = paginate_api();
-    let testctx = common::test_setup("extra_params", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     // Test that the extra query parameter is optional.
@@ -531,7 +526,7 @@ async fn api_with_required_params(
 #[tokio::test]
 async fn test_paginate_with_required_params() {
     let api = paginate_api();
-    let testctx = common::test_setup("required_params", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     // Test that the extra query parameter is optional...
@@ -658,7 +653,7 @@ async fn api_dictionary(
 #[tokio::test]
 async fn test_paginate_dictionary() {
     let api = paginate_api();
-    let testctx = common::test_setup("dictionary", api);
+    let testctx = common::test_setup(api);
     let client = &testctx.client_testctx;
 
     // simple case
@@ -773,15 +768,6 @@ async fn test_paginate_dictionary() {
 struct ExampleContext {
     child: Popen,
     client: ClientTestContext,
-    logctx: Option<LogContext>,
-}
-
-impl ExampleContext {
-    fn cleanup_successful(&mut self) {
-        if let Some(l) = self.logctx.take() {
-            l.cleanup_successful()
-        }
-    }
 }
 
 impl Drop for ExampleContext {
@@ -796,16 +782,6 @@ impl Drop for ExampleContext {
 /// Dropshot server to become available.  It returns a handle to the child
 /// process and a ClientTestContext for making requests against that server.
 async fn start_example(path: &str, port: u16) -> ExampleContext {
-    let logctx = LogContext::new(
-        path,
-        &ConfigLogging::File {
-            level: ConfigLoggingLevel::Info,
-            path: "UNUSED".into(),
-            if_exists: ConfigLoggingIfExists::Fail,
-        },
-    );
-
-    let log = logctx.log.new(o!());
     let cmd_path = {
         let mut my_path = current_exe().expect("failed to find test program");
         my_path.pop();
@@ -822,7 +798,7 @@ async fn start_example(path: &str, port: u16) -> ExampleContext {
     // but removed upon successful completion of the test.
     let config = Exec::cmd(cmd_path).arg(port.to_string()).stderr(NullFile);
     let cmdline = config.to_cmdline_lossy();
-    info!(&log, "starting child process"; "cmdline" => &cmdline);
+    info!(cmdline = cmdline, "starting child process");
     let child = config.popen().unwrap();
 
     // Wait up to 10 seconds for the actual HTTP server to start up.  We'll
@@ -830,13 +806,13 @@ async fn start_example(path: &str, port: u16) -> ExampleContext {
     // HTTP-level error.
     let start = Instant::now();
     let server_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-    let client = ClientTestContext::new(server_addr, logctx.log.new(o!()));
+    let client = ClientTestContext::new(server_addr);
     let url = client.url("/");
     let raw_client = Client::new();
-    let rv = ExampleContext { child, client, logctx: Some(logctx) };
+    let rv = ExampleContext { child, client };
 
     while start.elapsed().as_secs() < 10 {
-        trace!(&log, "making test request to see if the server is up");
+        trace!("making test request to see if the server is up");
         let response = raw_client
             .request(
                 Request::builder()
@@ -872,7 +848,7 @@ async fn test_example_basic() {
     // We specify a port on which to run the example servers.  It would be
     // better to let them pick a port on startup (as they will do if we don't
     // provide an argument) and use that.
-    let mut exctx = start_example("pagination-basic", 12230).await;
+    let exctx = start_example("pagination-basic", 12230).await;
     let client = &exctx.client;
 
     let alltogether =
@@ -880,8 +856,6 @@ async fn test_example_basic() {
     assert_eq!(alltogether.len(), 999);
     assert_eq!(alltogether[0].name, "project001");
     assert_eq!(alltogether[alltogether.len() - 1].name, "project999");
-
-    exctx.cleanup_successful();
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -893,7 +867,7 @@ struct ExampleProjectMtime {
 /// Tests the "pagination-multiple-sorts" example.
 #[tokio::test]
 async fn test_example_multiple_sorts() {
-    let mut exctx = start_example("pagination-multiple-sorts", 12231).await;
+    let exctx = start_example("pagination-multiple-sorts", 12231).await;
     let client = &exctx.client;
 
     // default sort
@@ -955,8 +929,6 @@ async fn test_example_multiple_sorts() {
         bymtime_desc,
         bymtime_asc.iter().rev().cloned().collect::<Vec<ExampleProjectMtime>>()
     );
-
-    exctx.cleanup_successful();
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -968,7 +940,7 @@ struct ExampleObject {
 /// Tests the "pagination-multiple-resources" example.
 #[tokio::test]
 async fn test_example_multiple_resources() {
-    let mut exctx = start_example("pagination-multiple-resources", 12232).await;
+    let exctx = start_example("pagination-multiple-resources", 12232).await;
     let client = &exctx.client;
 
     let resources = ["/projects", "/disks", "/instances"];
@@ -996,6 +968,4 @@ async fn test_example_multiple_resources() {
             by_name_asc.iter().rev().cloned().collect::<Vec<ExampleObject>>()
         );
     }
-
-    exctx.cleanup_successful();
 }
