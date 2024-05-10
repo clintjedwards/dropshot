@@ -47,7 +47,7 @@ use tokio::{
     sync::oneshot,
 };
 use tokio_rustls::{server::TlsStream, TlsAcceptor};
-use tracing::{error, info, span, trace, warn, Level};
+use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 use waitgroup::WaitGroup;
 
@@ -773,16 +773,8 @@ async fn http_request_handle_wrap<C: ServerContext>(
     // themselves.
     let start_time = std::time::Instant::now();
     let request_id = generate_request_id();
-
-    let request_span = span!(
-        Level::TRACE,
-        "http_request",
-        remote_addr = %remote_addr,
-        req_id = request_id.clone(),
-        method = request.method().as_str().to_string(),
-        uri = format!("{}", request.uri()),
-    );
-    let _enter = request_span.enter();
+    let method = request.method().as_str().to_string();
+    let uri = request.uri().to_string();
 
     trace!("incoming request");
     #[cfg(feature = "usdt-probes")]
@@ -855,6 +847,10 @@ async fn http_request_handle_wrap<C: ServerContext>(
 
             // TODO-debug: add request and response headers here
             info!(
+                remote_addr = %remote_addr,
+                req_id = request_id.clone(),
+                method = method,
+                uri = uri,
                 response_code = r.status().as_str(),
                 latency = format_latency(latency),
                 error_message_internal = message_internal,
@@ -868,6 +864,10 @@ async fn http_request_handle_wrap<C: ServerContext>(
         Ok(response) => {
             // TODO-debug: add request and response headers here
             info!(
+                remote_addr = %remote_addr,
+                req_id = request_id.clone(),
+                method = method,
+                uri = uri,
                 response_code = response.status().as_str(),
                 latency = format_latency(latency),
                 "request completed"
