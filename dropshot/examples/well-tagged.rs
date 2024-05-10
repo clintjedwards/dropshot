@@ -45,11 +45,12 @@ async fn get_fryism(
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_target(false)
-        .compact()
-        .init();
+    // Uncomment for logs
+    // tracing_subscriber::fmt()
+    //     .with_max_level(tracing::Level::INFO)
+    //     .with_target(false)
+    //     .compact()
+    //     .init();
 
     // We must specify a configuration with a bind address.  We'll use 127.0.0.1
     // since it's available and won't expose this server outside the host.  We

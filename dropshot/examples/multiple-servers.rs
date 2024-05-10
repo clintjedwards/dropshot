@@ -188,7 +188,7 @@ impl SharedMultiServerContext {
         };
 
         tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::TRACE)
+            .with_max_level(tracing::Level::INFO)
             .with_target(false)
             .compact()
             .init();

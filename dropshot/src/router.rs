@@ -44,11 +44,6 @@ use std::sync::Arc;
 /// These could be relaxed, but it's not clear that's useful, and enforcing them
 /// makes it easier to catch some types of bugs:
 ///
-/// * A particular resource (node) may have child resources (edges) with either
-///   literal path segments or variable path segments, but not both.  For
-///   example, you can't register both `"/projects/{id}"` and
-///   `"/projects/default"`.
-///
 /// * If a given resource has an edge with a variable name, all routes through
 ///   this node must use the same name for that variable.  That is, you can't
 ///   define routes for `"/projects/{id}"` and `"/projects/{project_id}/info"`.
@@ -83,17 +78,9 @@ struct HttpRouterNode<Context: ServerContext> {
     /// Handlers, etc. for each of the HTTP methods defined for this node.
     methods: BTreeMap<String, ApiEndpoint<Context>>,
     /// Edges linking to child nodes.
-    edges: Option<HttpRouterEdges<Context>>,
-}
-
-#[derive(Debug)]
-enum HttpRouterEdges<Context: ServerContext> {
-    /// Outgoing edges for literal paths.
-    Literals(BTreeMap<String, Box<HttpRouterNode<Context>>>),
-    /// Outgoing edge for variable-named paths.
-    VariableSingle(String, Box<HttpRouterNode<Context>>),
-    /// Outgoing edge that consumes all remaining components.
-    VariableRest(String, Box<HttpRouterNode<Context>>),
+    literal_edges: Option<BTreeMap<String, Box<HttpRouterNode<Context>>>>,
+    variable_edge: Option<(String, Box<HttpRouterNode<Context>>)>,
+    rest_edge: Option<(String, Box<HttpRouterNode<Context>>)>,
 }
 
 /// `PathSegment` represents a segment in a URI path when the router is being
@@ -216,7 +203,12 @@ pub struct RouterLookupResult<Context: ServerContext> {
 
 impl<Context: ServerContext> HttpRouterNode<Context> {
     pub fn new() -> Self {
-        HttpRouterNode { methods: BTreeMap::new(), edges: None }
+        HttpRouterNode {
+            methods: BTreeMap::new(),
+            literal_edges: None,
+            variable_edge: None,
+            rest_edge: None,
+        }
     }
 }
 
@@ -244,79 +236,39 @@ impl<Context: ServerContext> HttpRouter<Context> {
 
             node = match segment {
                 PathSegment::Literal(lit) => {
-                    let edges = node.edges.get_or_insert(
-                        HttpRouterEdges::Literals(BTreeMap::new()),
-                    );
-                    match edges {
-                        // We do not allow both literal and variable edges from
-                        // the same node.  This could be supported (with some
-                        // caveats about how matching would work), but it seems
-                        // more likely to be a mistake.
-                        HttpRouterEdges::VariableSingle(varname, _)
-                        | HttpRouterEdges::VariableRest(varname, _) => {
-                            panic!(
-                                "URI path \"{}\": attempted to register route \
-                                 for literal path segment \"{}\" when a route \
-                                 exists for variable path segment (variable \
-                                 name: \"{}\")",
-                                path, lit, varname
-                            );
-                        }
-                        HttpRouterEdges::Literals(ref mut literals) => literals
-                            .entry(lit)
-                            .or_insert_with(|| Box::new(HttpRouterNode::new())),
-                    }
-                }
+                    // When inserting a literal we first check to see if a literal
+                    // with the same segment exists. If it does we return it.
+                    // If it doesn't we make a new entry for a literal.
 
+                    let edge =
+                        node.literal_edges.get_or_insert(BTreeMap::new());
+
+                    edge.entry(lit)
+                        .or_insert_with(|| Box::new(HttpRouterNode::new()))
+                }
                 PathSegment::VarnameSegment(new_varname) => {
                     insert_var(&path, &mut varnames, &new_varname);
 
-                    let edges = node.edges.get_or_insert(
-                        HttpRouterEdges::VariableSingle(
-                            new_varname.clone(),
-                            Box::new(HttpRouterNode::new()),
-                        ),
-                    );
-                    match edges {
-                        // See the analogous check above about combining literal
-                        // and variable path segments from the same resource.
-                        HttpRouterEdges::Literals(_) => panic!(
-                            "URI path \"{}\": attempted to register route for \
-                             variable path segment (variable name: \"{}\") \
-                             when a route already exists for a literal path \
-                             segment",
-                            path, new_varname
-                        ),
+                    let (varname, edge) = node.variable_edge.get_or_insert((
+                        new_varname.clone(),
+                        Box::new(HttpRouterNode::new()),
+                    ));
 
-                        HttpRouterEdges::VariableRest(varname, _) => panic!(
-                            "URI path \"{}\": attempted to register route for \
-                             variable path segment (variable name: \"{}\") \
-                             when a route already exists for the remainder of \
-                             the path as {}",
-                            path, new_varname, varname,
-                        ),
-
-                        HttpRouterEdges::VariableSingle(
-                            varname,
-                            ref mut node,
-                        ) => {
-                            if *new_varname != *varname {
-                                // Don't allow people to use different names for
-                                // the same part of the path.  Again, this could
-                                // be supported, but it seems likely to be
-                                // confusing and probably a mistake.
-                                panic!(
-                                    "URI path \"{}\": attempted to use \
-                                     variable name \"{}\", but a different \
-                                     name (\"{}\") has already been used for \
-                                     this",
-                                    path, new_varname, varname
-                                );
-                            }
-
-                            node
-                        }
+                    if *new_varname != *varname {
+                        // Don't allow people to use different names for
+                        // the same part of the path.  Again, this could
+                        // be supported, but it seems likely to be
+                        // confusing and probably a mistake.
+                        panic!(
+                            "URI path \"{}\": attempted to use \
+                             variable name \"{}\", but a different \
+                             name (\"{}\") has already been used for \
+                             this",
+                            path, new_varname, varname
+                        );
                     }
+
+                    edge
                 }
                 PathSegment::VarnameWildcard(new_varname) => {
                     /*
@@ -332,54 +284,27 @@ impl<Context: ServerContext> HttpRouter<Context> {
 
                     insert_var(&path, &mut varnames, &new_varname);
 
-                    let edges = node.edges.get_or_insert(
-                        HttpRouterEdges::VariableRest(
-                            new_varname.clone(),
-                            Box::new(HttpRouterNode::new()),
-                        ),
-                    );
-                    match edges {
+                    let (varname, edge) = node.rest_edge.get_or_insert((
+                        new_varname.clone(),
+                        Box::new(HttpRouterNode::new()),
+                    ));
+                    if *new_varname != *varname {
                         /*
-                         * See the analogous check above about combining literal
-                         * and variable path segments from the same resource.
+                         * Don't allow people to use different names for
+                         * the same part of the path.  Again, this could
+                         * be supported, but it seems likely to be
+                         * confusing and probably a mistake.
                          */
-                        HttpRouterEdges::Literals(_) => panic!(
-                            "URI path \"{}\": attempted to register route for \
-                             variable path regex (variable name: \"{}\") when \
-                             a route already exists for a literal path segment",
-                            path, new_varname
-                        ),
-
-                        HttpRouterEdges::VariableSingle(varname, _) => panic!(
-                            "URI path \"{}\": attempted to register route for \
-                             variable path regex (variable name: \"{}\") when \
-                             a route already exists for a segment {}",
-                            path, new_varname, varname,
-                        ),
-
-                        HttpRouterEdges::VariableRest(
-                            varname,
-                            ref mut node,
-                        ) => {
-                            if *new_varname != *varname {
-                                /*
-                                 * Don't allow people to use different names for
-                                 * the same part of the path.  Again, this could
-                                 * be supported, but it seems likely to be
-                                 * confusing and probably a mistake.
-                                 */
-                                panic!(
-                                    "URI path \"{}\": attempted to use \
-                                     variable name \"{}\", but a different \
-                                     name (\"{}\") has already been used for \
-                                     this",
-                                    path, new_varname, varname
-                                );
-                            }
-
-                            node
-                        }
+                        panic!(
+                            "URI path \"{}\": attempted to use \
+                             variable name \"{}\", but a different \
+                             name (\"{}\") has already been used for \
+                             this",
+                            path, new_varname, varname
+                        );
                     }
+
+                    edge
                 }
             };
         }
@@ -402,6 +327,14 @@ impl<Context: ServerContext> HttpRouter<Context> {
     /// of variables assigned based on the request path as part of the lookup.
     /// On failure, this returns an `HttpError` appropriate for the failure
     /// mode.
+    ///
+    /// The matching rules here prioritize routes with more specificity
+    /// over routes with less specificity (e.g /path/default is chosen before /path/{id}).
+    ///
+    /// A partial drawback of always picking the most specific route is that for two similar
+    /// path structures, for example: `/foo/bar` and `/{id}/bar/hello` the path "/foo/bar/hello"
+    /// will result in a 404, since the lookup logic will follow /foo/bar tree without consideration
+    /// for the latter.
     pub fn lookup_route(
         &self,
         method: &Method,
@@ -420,52 +353,57 @@ impl<Context: ServerContext> HttpRouter<Context> {
         while let Some(segment) = all_segments.next() {
             let segment_string = segment.to_string();
 
-            node = match &node.edges {
-                None => None,
+            // First we check if the segment maps to a literal.
+            if let Some(edges) = &node.literal_edges {
+                if let Some(edge_node) = edges.get(&segment_string) {
+                    node = edge_node;
+                    continue;
+                }
+            };
 
-                Some(HttpRouterEdges::Literals(edges)) => {
-                    edges.get(&segment_string)
-                }
-                Some(HttpRouterEdges::VariableSingle(varname, ref node)) => {
-                    variables.insert(
-                        varname.clone(),
-                        VariableValue::String(segment_string),
-                    );
-                    Some(node)
-                }
-                Some(HttpRouterEdges::VariableRest(varname, node)) => {
-                    let mut rest = vec![segment];
-                    while let Some(segment) = all_segments.next() {
-                        rest.push(segment);
-                    }
-                    variables.insert(
-                        varname.clone(),
-                        VariableValue::Components(rest),
-                    );
-                    // There should be no outgoing edges since this is by
-                    // definition a terminal node
-                    assert!(node.edges.is_none());
-                    Some(node)
-                }
+            // Then we check if there is a valid variable edge.
+            if let Some((varname, edge)) = &node.variable_edge {
+                variables.insert(
+                    varname.clone(),
+                    VariableValue::String(segment_string),
+                );
+                node = &edge;
+                continue;
             }
-            .ok_or_else(|| {
-                HttpError::for_not_found(
-                    None,
-                    String::from("no route found (no path in router)"),
-                )
-            })?
+
+            // Lastly we check if there is a wildcard edge.
+            if let Some((varname, edge)) = &node.rest_edge {
+                let mut rest = vec![segment];
+                while let Some(segment) = all_segments.next() {
+                    rest.push(segment);
+                }
+                variables
+                    .insert(varname.clone(), VariableValue::Components(rest));
+                // There should be no outgoing edges since this is by
+                // definition a terminal node
+                assert!(edge.literal_edges.is_none());
+                assert!(edge.variable_edge.is_none());
+                assert!(edge.rest_edge.is_none());
+
+                node = &edge;
+                continue;
+            }
+
+            return Err(HttpError::for_not_found(
+                None,
+                String::from("no route found (no path in router)"),
+            ));
         }
 
         // The wildcard match consumes the implicit, empty path segment
-        match &node.edges {
-            Some(HttpRouterEdges::VariableRest(varname, new_node)) => {
-                variables
-                    .insert(varname.clone(), VariableValue::Components(vec![]));
-                // There should be no outgoing edges
-                assert!(new_node.edges.is_none());
-                node = new_node;
-            }
-            _ => {}
+        if let Some((varname, edge)) = &node.rest_edge {
+            variables
+                .insert(varname.clone(), VariableValue::Components(vec![]));
+            // There should be no outgoing edges
+            assert!(edge.literal_edges.is_none());
+            assert!(edge.variable_edge.is_none());
+            assert!(edge.rest_edge.is_none());
+            node = &edge;
         }
 
         // As a somewhat special case, if one requests a node with no handlers
@@ -551,25 +489,36 @@ impl<'a, Context: ServerContext> HttpRouterIter<'a, Context> {
     fn iter_node(
         node: &'a HttpRouterNode<Context>,
     ) -> Box<PathIter<'a, Context>> {
-        match &node.edges {
-            Some(HttpRouterEdges::Literals(map)) => Box::new(
-                map.iter()
-                    .map(|(s, node)| (PathSegment::Literal(s.clone()), node)),
-            ),
-            Some(HttpRouterEdges::VariableSingle(varname, node)) => {
+        let literal_iter = node.literal_edges.as_ref().map_or(
+            Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>,
+            |literals| {
+                Box::new(literals.iter().map(move |(s, node)| {
+                    (PathSegment::Literal(s.clone()), node)
+                }))
+            },
+        );
+
+        let variable_iter = node.variable_edge.as_ref().map_or(
+            Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>,
+            |(varname, node)| {
                 Box::new(std::iter::once((
                     PathSegment::VarnameSegment(varname.clone()),
                     node,
                 )))
-            }
-            Some(HttpRouterEdges::VariableRest(varname, node)) => {
+            },
+        );
+
+        let rest_iter = node.rest_edge.as_ref().map_or(
+            Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>,
+            |(varname, node)| {
                 Box::new(std::iter::once((
                     PathSegment::VarnameSegment(varname.clone()),
                     node,
                 )))
-            }
-            None => Box::new(std::iter::empty()),
-        }
+            },
+        );
+
+        Box::new(literal_iter.chain(variable_iter).chain(rest_iter))
     }
 
     /// Produce a human-readable path from the current vector of path segments.
@@ -870,10 +819,6 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "URI path \"/projects/{id}\": attempted to \
-                               register route for variable path segment \
-                               (variable name: \"id\") when a route already \
-                               exists for a literal path segment")]
     fn test_variable_after_literal() {
         let mut router = HttpRouter::new();
         router.insert(new_endpoint(
@@ -889,10 +834,109 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "URI path \"/projects/default\": attempted to \
-                               register route for literal path segment \
-                               \"default\" when a route exists for variable \
-                               path segment (variable name: \"id\")")]
+    fn test_more_specific_route_wins() {
+        let mut router = HttpRouter::new();
+        router.insert(new_endpoint(
+            new_handler_named("route_one"),
+            Method::GET,
+            "/projects/{id}",
+        ));
+        router.insert(new_endpoint(
+            new_handler_named("route_two"),
+            Method::GET,
+            "/projects/default",
+        ));
+        let result = router
+            .lookup_route(&Method::GET, "/projects/default".into())
+            .unwrap();
+        assert_eq!(result.handler.label(), "route_two");
+    }
+
+    #[test]
+    fn test_less_specific_route_still_accessible() {
+        let mut router = HttpRouter::new();
+        router.insert(new_endpoint(
+            new_handler_named("route_one"),
+            Method::GET,
+            "/projects/{id}",
+        ));
+        router.insert(new_endpoint(
+            new_handler_named("route_two"),
+            Method::GET,
+            "/projects/default",
+        ));
+        let result =
+            router.lookup_route(&Method::GET, "/projects/lol".into()).unwrap();
+        assert_eq!(result.handler.label(), "route_one");
+    }
+
+    #[test]
+    fn test_catch_all_routes_work() {
+        let mut router = HttpRouter::new();
+        router.insert(new_endpoint(
+            new_handler_named("route_one"),
+            Method::GET,
+            "/projects/{id}",
+        ));
+        router.insert(new_endpoint(
+            new_handler_named("route_two"),
+            Method::GET,
+            "/projects/default",
+        ));
+        router.insert(new_endpoint(
+            new_handler_named("route_three"),
+            Method::GET,
+            "/{path:.*}",
+        ));
+        let result =
+            router.lookup_route(&Method::GET, "/projects/lol".into()).unwrap();
+        assert_eq!(result.handler.label(), "route_one");
+        let result = router
+            .lookup_route(&Method::GET, "/projects/default".into())
+            .unwrap();
+        assert_eq!(result.handler.label(), "route_two");
+        let result =
+            router.lookup_route(&Method::GET, "/lolwut".into()).unwrap();
+        assert_eq!(result.handler.label(), "route_three");
+
+        let result =
+            router.lookup_route(&Method::GET, "/lolwut/test".into()).unwrap();
+        assert_eq!(result.handler.label(), "route_three");
+
+        let result =
+            router.lookup_route(&Method::GET, "/lolwut".into()).unwrap();
+        assert_eq!(result.handler.label(), "route_three");
+    }
+
+    #[test]
+    fn test_no_backmatching() {
+        // if the indented route starts with a literal that exists we don't
+        // go back and match on variable strings even if the route exists.
+        // For example, for a router with the routes `/projects/default` and `/{id}/default/lol`,
+        // If the path "/projects/default/lol" comes in it will be a 404 since the first segment
+        // already matched with the `projects` literal.
+        let mut router = HttpRouter::new();
+        router.insert(new_endpoint(
+            new_handler_named("route_one"),
+            Method::GET,
+            "/projects/default",
+        ));
+        router.insert(new_endpoint(
+            new_handler_named("route_two"),
+            Method::GET,
+            "/{id}/default/lol",
+        ));
+        let result = router
+            .lookup_route(&Method::GET, "/projects/default".into())
+            .unwrap();
+        assert_eq!(result.handler.label(), "route_one");
+
+        assert!(router
+            .lookup_route(&Method::GET, "/projects/default/lol".into())
+            .is_err());
+    }
+
+    #[test]
     fn test_literal_after_variable() {
         let mut router = HttpRouter::new();
         router.insert(new_endpoint(
@@ -908,10 +952,6 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "URI path \"/projects/default\": attempted to \
-                               register route for literal path segment \
-                               \"default\" when a route exists for variable \
-                               path segment (variable name: \"rest\")")]
     fn test_literal_after_regex() {
         let mut router = HttpRouter::new();
         router.insert(new_endpoint(

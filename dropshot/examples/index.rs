@@ -20,11 +20,12 @@ async fn main() -> Result<(), String> {
     // port.
     let config_dropshot: ConfigDropshot = Default::default();
 
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_target(false)
-        .compact()
-        .init();
+    // Uncomment for logs
+    // tracing_subscriber::fmt()
+    //     .with_max_level(tracing::Level::INFO)
+    //     .with_target(false)
+    //     .compact()
+    //     .init();
 
     // Build a description of the API.
     let mut api = ApiDescription::new();

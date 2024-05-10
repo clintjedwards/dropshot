@@ -4,6 +4,8 @@
 
 = Dropshot
 
+== A fork in the road
+
 This is a fork of https://github.com/oxidecomputer/dropshot[Oxide Computer's Dropshot crate].
 
 Oxide's crate is awesome and probably the best rust crate for managing a REST API with automatic OpenAPI generation to date.
@@ -11,18 +13,19 @@ Oxide's crate is awesome and probably the best rust crate for managing a REST AP
 This fork is because I wanted slightly different design decisions than the crew at Oxide went with. The main differences
 I added are:
 
-* Allowed routes to overlap, with the more specific route winning over less specific routes(those with path vars). (And
-when both routes are specific then we simply choose the one that was registered first.)
-** Oxide discussion here: https://github.com/oxidecomputer/dropshot.
-** My motivation is because I love keeping everything in a single binary and it just looks better for my frontend
+* Allowed routes to overlap, with the more specific route winning over less specific route(those with path vars).
+** This is similar to https://go.dev/blog/routing-enhancements)[Go's new routing enhancements]. (And it
+intuitively makes sense).
+** https://github.com/oxidecomputer/dropshot/issues/199[Oxide discussion on route overlapping here].
+** The motivation is because I usually keep things in a single binary and it just looks better for my frontend
 to be accessed at `https://myapp.com/` and my api to be accessed at `https://myapp.com/api`. Due to the overlapping
-restriction the frontend previously had to be at something like `https://myapp.com/-/`.
-** The drawback is without proper testing you can have overlapping routes that don't follow the pattern of access
-you thought they would. My solution to this is just good tests.
-** I also lowered some of the logging levels. Typically I run my dev terminal at `DEBUG` log level and like it so
-that there is more information than I would run in production but not a deluge of it. The logging levels previously
-were all mostly at the debug level making actual dev signal hard to get.
-
+restriction the frontend previously had to be at something like `https://myapp.com/-/`. Some say this is bad URL design
+but the tribe has spoken.
+** There are two drawbacks to this approach:
+*** If you make overlapping routes mistakenly, you might be routed to a handler that you did not expect. The only
+way you find this out is through thorough testing.
+*** Currently because of how specificity matching works we don't do backmatching. That means that if we have two routes
+registered: `/foo/bar` and `/{slug}/bar/lol`, A request intended for path `/foo/bar/lol` will fail with a 404.
 * Moved the slog logger to use tracing instead.
 ** All my crates use tracing and I've been having a really good time with the tracing ethos and implementation.
 ** It's also used by a lot of core rust crates, seems to be pretty well supported, and has good async support.
@@ -30,11 +33,16 @@ were all mostly at the debug level making actual dev signal hard to get.
 but the code felt like a hack and didn't map key/value pairs very well.
 ** Software philosophically I don't think a lib focused on REST API ergonomics should be handling log output or
 configuration, so I removed some of those pieces.
+** I also lowered some of the logging levels. Typically I run my dev terminal at `DEBUG` log level and like it so
+that there is more information than I would run in production but not a deluge of it. The logging levels previously
+were all mostly at the debug level making actual dev signal hard to get.
 
 * Various other small quality of life changes.
 
 Since the two changes above are largely non-backward compatible changes, I created
 this fork instead of trying to get these merged upstream.
+
+== Regularly scheduled programming
 
 Dropshot is a general-purpose crate for exposing REST APIs from a Rust program.
 For more, see the https://docs.rs/dropshot/[online Dropshot documentation].
@@ -69,3 +77,6 @@ It's early, and we may find we need richer facilities in the framework.  But we'
 == Examples
 
 To run the examples in dropshot/examples, clone the repository and run `cargo run --example [example_name]`, e.g. `cargo run --example basic`. (Do not include the file extension.)
+
+Since we've moved to tracing, you can turn on logging for each test by uncommenting the tracing_subscriber implementation
+inside each example.

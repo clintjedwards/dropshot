@@ -187,7 +187,7 @@ impl<C: ServerContext> HttpServerStarter<C> {
             r.map_err(|e| format!("waiting for server: {e}"))?
                 .map_err(|e| format!("server stopped: {e}"))
         });
-        trace!(local_addr = %self.local_addr, "started web service");
+        info!(local_addr = %self.local_addr, "started web service");
 
         let handler_waitgroup = self.handler_waitgroup;
         let join_handle = async move {

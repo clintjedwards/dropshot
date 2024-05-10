@@ -48,11 +48,12 @@ fn bar_example() -> Bar {
 }
 
 fn main() -> Result<(), String> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_target(false)
-        .compact()
-        .init();
+    // Uncomment for logs
+    // tracing_subscriber::fmt()
+    //     .with_max_level(tracing::Level::INFO)
+    //     .with_target(false)
+    //     .compact()
+    //     .init();
 
     let mut api = ApiDescription::new();
     api.register(get_foo).unwrap();
