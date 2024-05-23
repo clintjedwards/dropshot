@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde_json::json;
 use sha1::{Digest, Sha1};
 use std::future::Future;
-use tracing::{debug, error};
+use tracing::debug;
 
 /// WebsocketUpgrade is an ExclusiveExtractor used to upgrade and handle an HTTP
 /// request as a websocket when present in a Dropshot endpoint's function
@@ -211,20 +211,9 @@ impl WebsocketUpgrade {
                 tokio::spawn(async move {
                     match upgrade_fut.await {
                         Ok(upgrade) => {
-                            match handler(WebsocketConnection(upgrade)).await {
-                                Ok(x) => Ok(x),
-                                Err(e) => {
-                                    error!(
-                                        error = %e, "Error returned from handler"
-                                    );
-                                    Err(e)
-                                }
-                            }
+                            handler(WebsocketConnection(upgrade)).await
                         }
-                        Err(e) => {
-                            error!(error = %e, "Error upgrading connection");
-                            Err(e.into())
-                        }
+                        Err(e) => Err(e.into()),
                     }
                 });
                 Response::builder()
