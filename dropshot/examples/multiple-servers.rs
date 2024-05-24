@@ -211,9 +211,13 @@ impl SharedMultiServerContext {
             shared: Arc::clone(self),
             name: name.to_string(),
         };
-        let server = HttpServerStarter::new(&config_dropshot, api, context)
-            .map_err(|error| format!("failed to create server: {}", error))?
-            .start();
+        let server =
+            HttpServerStarter::new(&config_dropshot, api, None, context)
+                .map_err(|error| format!("failed to create server: {}", error))?
+                .start();
+
+        info!(address = server.local_addr().to_string(), "started http server");
+
         let shutdown_handle = server.wait_for_shutdown();
 
         slot.insert(server);

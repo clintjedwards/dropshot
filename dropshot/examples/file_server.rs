@@ -12,6 +12,7 @@ use hyper::Body;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
+use tracing::info;
 
 /// Our context is simply the root of the directory we want to serve.
 struct FileServerContext {
@@ -26,12 +27,11 @@ async fn main() -> Result<(), String> {
     // port.
     let config_dropshot = Default::default();
 
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     // Build a description of the API -- in this case it's not much of an API!.
     let mut api = ApiDescription::new();
@@ -41,9 +41,11 @@ async fn main() -> Result<(), String> {
     let context = FileServerContext { base: PathBuf::from(".") };
 
     // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, context)
+    let server = HttpServerStarter::new(&config_dropshot, api, None, context)
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
+
+    info!(address = server.local_addr().to_string(), "started http server");
 
     // Wait for the server to stop.  Note that there's not any code to shut down
     // this server, so we should never get past this point.

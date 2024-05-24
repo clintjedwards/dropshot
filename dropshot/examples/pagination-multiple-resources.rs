@@ -25,6 +25,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::ops::Bound;
 use std::sync::Arc;
+use tracing::info;
 use uuid::Uuid;
 
 // Example API data model: we have three resources, each having an "id" and
@@ -267,12 +268,11 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     let port = std::env::args()
         .nth(1)
@@ -291,9 +291,11 @@ async fn main() -> Result<(), String> {
     api.register(example_list_projects).unwrap();
     api.register(example_list_disks).unwrap();
     api.register(example_list_instances).unwrap();
-    let server = HttpServerStarter::new(&config_dropshot, api, ctx)
+    let server = HttpServerStarter::new(&config_dropshot, api, None, ctx)
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
+
+    info!(address = server.local_addr().to_string(), "started http server");
 
     server.await
 }

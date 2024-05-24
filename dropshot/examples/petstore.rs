@@ -6,12 +6,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 fn main() -> Result<(), String> {
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     // Build a description of the API.
     let mut api = ApiDescription::new();

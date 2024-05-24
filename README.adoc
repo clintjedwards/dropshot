@@ -13,34 +13,51 @@ Oxide's crate is awesome and probably the best rust crate for managing a REST AP
 This fork is because I wanted slightly different design decisions than the crew at Oxide went with. The main differences
 I added are:
 
-* Allowed routes to overlap, with the more specific route winning over less specific route(those with path vars).
-** This is similar to https://go.dev/blog/routing-enhancements)[Go's new routing enhancements]. (And it
-intuitively makes sense).
-** https://github.com/oxidecomputer/dropshot/issues/199[Oxide discussion on route overlapping here].
-** The motivation is because I usually keep things in a single binary and it just looks better for my frontend
-to be accessed at `https://myapp.com/` and my api to be accessed at `https://myapp.com/api`. Due to the overlapping
-restriction the frontend previously had to be at something like `https://myapp.com/-/`. Some say this is bad URL design
-but the tribe has spoken.
-** There are two drawbacks to this approach:
-*** If you make overlapping routes mistakenly, you might be routed to a handler that you did not expect. The only
-way you find this out is through thorough testing.
-*** Currently because of how specificity matching works we don't do backmatching. That means that if we have two routes
-registered: `/foo/bar` and `/{slug}/bar/lol`, A request intended for path `/foo/bar/lol` will fail with a 404.
-* Moved the slog logger to use tracing instead.
-** All my crates use tracing and I've been having a really good time with the tracing ethos and implementation.
-** It's also used by a lot of core rust crates, seems to be pretty well supported, and has good async support.
-** First I attempted to create a https://docs.rs/tracing-slog/latest/tracing_slog/[slog drain that converted between the two]
-but the code felt like a hack and didn't map key/value pairs very well.
-** Software philosophically I don't think a lib focused on REST API ergonomics should be handling log output or
-configuration, so I removed some of those pieces.
-** I also lowered some of the logging levels. Typically I run my dev terminal at `DEBUG` log level and like it so
-that there is more information than I would run in production but not a deluge of it. The logging levels previously
-were all mostly at the debug level making actual dev signal hard to get.
+* **Allowed routes to overlap, with the more specific route winning over less specific route(those with path vars).**
+    ** This is similar to https://go.dev/blog/routing-enhancements)[Go's new routing enhancements]. (And it
+    intuitively makes sense).
+    ** https://github.com/oxidecomputer/dropshot/issues/199[Oxide discussion on route overlapping here].
+    ** The motivation is because I usually keep things in a single binary and it just looks better for my frontend
+    to be accessed at `https://myapp.com/` and my api to be accessed at `https://myapp.com/api`. Due to the overlapping
+    restriction the frontend previously had to be at something like `https://myapp.com/-/`. Some say this is bad URL design
+    but the tribe has spoken.
+    ** There are two drawbacks to this approach:
+        *** If you make overlapping routes mistakenly, you might be routed to a handler that you did not expect. The only
+        way you find this out is through thorough testing.
+        *** Currently because of how specificity matching works we don't do backmatching. That means that if we have two routes
+        registered: `/foo/bar` and `/{slug}/bar/lol`, A request intended for path `/foo/bar/lol` will fail with a 404.
+* **Moved the slog logger to use tracing instead.**
+    ** All my crates use tracing and I've been having a really good time with the tracing ethos and implementation.
+    ** It's also used by a lot of core rust crates, seems to be pretty well supported, and has good async support.
+    ** First I attempted to create a https://docs.rs/tracing-slog/latest/tracing_slog/[slog drain that converted between the two]
+    but the code felt like a hack and didn't map key/value pairs very well.
+    ** Software philosophically I don't think a lib focused on REST API ergonomics should be handling log output or
+    configuration, so I removed some of those pieces.
+    ** I also lowered some of the logging levels. Typically I run my dev terminal at `DEBUG` log level and like it so
+    that there is more information than I would run in production but not a deluge of it. The logging levels previously
+    were all mostly at the debug level making actual dev signal hard to get.
 
-* Various other small quality of life changes.
+* **Implemented middleware**
+    ** I really, **really** support dropshot's decision to try to eliminate the need for out-of-band middleware. I too
+    have come to projects and been very confused while debugging because there are 14 nested middleware functions that
+    made the execution of the handler hard to track.
+    ** But while building with dropshot I found myself constantly annoyed by the design decisions I was making while
+    attempting to avoid middleware.
+    ** Some of them were really good, like making the auth function the first line of every handler. This allowed me to
+    actually quickly grok what auth settings a handler had and that made it easier to grok what the function was allowed
+    to do. I also love keeping the request context passed to each handler lean.
+    ** But some of them were not so great, like the ability to do handler logging or anything that required me to
+    wrap the handler after it has run to grab response details.
+    ** After fighting with for a while I determined it was better to have the evil of middleware than wrapping my handler's
+    code and then passing it to some other function for every single handler I wanted to write.
+    ** I think the middleware decision is another decision that is probably a human problem that can be addressed with
+    appropriate static analysis, debug tooling, and policing.
 
-Since the two changes above are largely non-backward compatible changes, I created
-this fork instead of trying to get these merged upstream.
+* **Various other small quality of life changes**
+  ** Swapped UUIDv4 to UUIDv7 for request_id so they are sortable in order of creation.
+
+Since the changes above are largely non-backward compatible changes, I created this fork instead of trying to get
+these merged upstream.
 
 == Regularly scheduled programming
 
@@ -63,16 +80,6 @@ You can format the code using `cargo fmt`.  CI checks that code is correctly for
 https://github.com/rust-lang/rust-clippy[Clippy] is used to check for common code issues.  (We disable the style checks.)  You can run it with `cargo clippy --all-targets -- --deny warnings --allow clippy::style`.  CI will run clippy as well.
 
 For maintainers (e.g., publishing new releases and managing dependabot), see link:./MAINTAINERS.adoc[MAINTAINERS.adoc].
-
-== Design notes
-
-=== Why is there no way to add an API handler function that runs on every request?
-
-In designing Dropshot, we've tried to avoid a few problems we found with frameworks we used in the past.  Many (most?) web frameworks, whether in Rust or another language, let you specify a chain of handlers for each route.  You can usually specify some handlers that run before or after every request, regardless of the route.  We found that after years of evolving a complex API server using this approach, it can get quite hard to follow the control flow for a particular request and to understand the implicit dependencies between different handlers within the chain.  This made it time-consuming and error-prone to work on these API servers.  (For more details, see https://github.com/oxidecomputer/dropshot/issues/58#issuecomment-713175039[the discussion in issue 58].)
-
-With Dropshot, we wanted to try something different: if the primary purpose of these handlers is to share code between handlers, what if we rely instead on existing mechanisms -- i.e., function calls.  The big risk is that it's easy for someone to accidentally forget some important function call, like the one that authenticates or authorizes a user.  We haven't gotten far enough in a complex implementation to need this yet, but the plan is to create a pattern of utility functions that return typed values.  For example, where in Node.js you might add an early authentication handler that fills in `request.auth`, with Dropshot you'd have an authentication function that _returns_ an `AuthzContext` struct.  Then anything that needs authentication consumes the `AuthzContext` as a function argument.  As an author of a handler, you know if you've got an `AuthzContext` available and, if not, how to get one (call the utility function).  This composes, too: you can have an authorization function that returns an `AuthnContext`, and the utility function that returns one can consume the `AuthzContext`.  Then anything that requires authorization can consume just the `AuthnContext`, and you know it's been authenticated and authorized (possibly with details in that structure).
-
-It's early, and we may find we need richer facilities in the framework.  But we're hopeful this approach will make it faster and smoother to iterate on complex API servers.  If you pick up Dropshot and try this out, let us know how it goes!
 
 == Examples
 

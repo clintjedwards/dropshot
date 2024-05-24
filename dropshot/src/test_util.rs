@@ -359,9 +359,10 @@ impl<Context: ServerContext> TestContext<Context> {
         );
 
         // Set up the server itself.
-        let server = HttpServerStarter::new(&config_dropshot, api, private)
-            .unwrap()
-            .start();
+        let server =
+            HttpServerStarter::new(&config_dropshot, api, None, private)
+                .unwrap()
+                .start();
 
         let server_addr = server.local_addr();
         let client_testctx = ClientTestContext::new(server_addr);

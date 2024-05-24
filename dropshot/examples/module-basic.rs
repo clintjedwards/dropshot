@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::atomic::AtomicU64;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -16,12 +17,11 @@ async fn main() -> Result<(), String> {
     // port.
     let config_dropshot = Default::default();
 
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     // Build a description of the API.
     let mut api = ApiDescription::new();
@@ -32,9 +32,12 @@ async fn main() -> Result<(), String> {
     let api_context = ExampleContext::new();
 
     // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, api_context)
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
+    let server =
+        HttpServerStarter::new(&config_dropshot, api, None, api_context)
+            .map_err(|error| format!("failed to create server: {}", error))?
+            .start();
+
+    info!(address = server.local_addr().to_string(), "started http server");
 
     // Wait for the server to stop.  Note that there's not any code to shut down
     // this server, so we should never get past this point.

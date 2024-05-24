@@ -299,6 +299,7 @@ mod tests {
                     IpAddr::V6(Ipv6Addr::LOCALHOST),
                     8080,
                 ),
+                middleware: None,
                 tls_acceptor: None,
                 handler_waitgroup_worker: DebugIgnore(
                     WaitGroup::new().worker(),

@@ -116,6 +116,7 @@ fn make_server(cert_file: &Path, key_file: &Path) -> HttpServerStarter<i32> {
     HttpServerStarter::new_with_tls(
         &config,
         dropshot::ApiDescription::new(),
+        None,
         0,
         config_tls,
     )
@@ -404,9 +405,10 @@ async fn test_server_is_https() {
     });
     let mut api = dropshot::ApiDescription::new();
     api.register(tls_check_handler).unwrap();
-    let server = HttpServerStarter::new_with_tls(&config, api, 0, config_tls)
-        .unwrap()
-        .start();
+    let server =
+        HttpServerStarter::new_with_tls(&config, api, None, 0, config_tls)
+            .unwrap()
+            .start();
     let port = server.local_addr().port();
 
     let https_client = make_https_client(make_pki_verifier(&certs));

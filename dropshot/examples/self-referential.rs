@@ -15,15 +15,15 @@ use serde::Serialize;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     let config_dropshot: ConfigDropshot = Default::default();
 
@@ -33,9 +33,13 @@ async fn main() -> Result<(), String> {
     let api_context = Arc::new(ExampleContext::new());
 
     // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, api_context)
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
+    let server =
+        HttpServerStarter::new(&config_dropshot, api, None, api_context)
+            .map_err(|error| format!("failed to create server: {}", error))?
+            .start();
+
+    info!(address = server.local_addr().to_string(), "started http server");
+
     let shutdown = server.wait_for_shutdown();
 
     tokio::task::spawn(async move {

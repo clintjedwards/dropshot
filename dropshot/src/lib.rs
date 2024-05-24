@@ -64,6 +64,7 @@
 //!                 default_handler_task_mode: HandlerTaskMode::Detached,
 //!             },
 //!             api,
+//!             None,
 //!             Arc::new(()),
 //!         )
 //!         .map_err(|error| format!("failed to start server: {}", error))?
@@ -620,7 +621,8 @@ pub use pagination::{
     EmptyScanParams, PaginationOrder, PaginationParams, ResultsPage, WhichPage,
 };
 pub use server::{
-    HttpServer, HttpServerStarter, ServerContext, ShutdownWaitFuture,
+    DropshotState, HttpServer, HttpServerStarter, Middleware, ServerContext,
+    ShutdownWaitFuture,
 };
 pub use websocket::{
     WebsocketChannelResult, WebsocketConnection, WebsocketConnectionRaw,

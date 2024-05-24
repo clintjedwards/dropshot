@@ -1,71 +1,38 @@
 // Copyright 2020 Oxide Computer Company
-
-//! Example use of Dropshot with TLS enabled
+//! Example use of middleware.
 
 use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
-use dropshot::ConfigTls;
+use dropshot::DropshotState;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpResponseUpdatedNoContent;
 use dropshot::HttpServerStarter;
+use dropshot::Middleware;
 use dropshot::RequestContext;
+use dropshot::ServerContext;
 use dropshot::TypedBody;
+use futures::Future;
+use http::Request;
+use hyper::Body;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use std::io::Write;
+use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use tempfile::NamedTempFile;
+use std::sync::Arc;
 use tracing::info;
-
-// This function would not be used in a normal application. It is used to
-// generate temporary keys and certificates for the purpose of this demo.
-fn generate_keys() -> Result<(NamedTempFile, NamedTempFile), String> {
-    let keypair =
-        rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .map_err(|e| e.to_string())?;
-    let cert = keypair.cert.pem();
-    let priv_key = keypair.key_pair.serialize_pem();
-
-    let make_temp = || {
-        tempfile::Builder::new()
-            .prefix("dropshot-https-example-")
-            .rand_bytes(5)
-            .tempfile()
-    };
-
-    let mut cert_file =
-        make_temp().map_err(|_| "failed to create cert_file")?;
-    cert_file
-        .write(cert.as_bytes())
-        .map_err(|_| "failed to write cert_file")?;
-    let mut key_file = make_temp().map_err(|_| "failed to create key_file")?;
-    key_file
-        .write(priv_key.as_bytes())
-        .map_err(|_| "failed to write key_file")?;
-    Ok((cert_file, key_file))
-}
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Begin by generating TLS certificates and keys. A normal application would
-    // just pass the paths to these via ConfigDropshot.
-    let (cert_file, key_file) = generate_keys()?;
-
     // We must specify a configuration with a bind address.  We'll use 127.0.0.1
     // since it's available and won't expose this server outside the host.  We
     // request port 0, which allows the operating system to pick any available
     // port.
-    //
-    // In addition, we'll make this an HTTPS server.
-    let config_dropshot = ConfigDropshot::default();
-    let config_tls = Some(ConfigTls::AsFile {
-        cert_file: cert_file.path().to_path_buf(),
-        key_file: key_file.path().to_path_buf(),
-    });
+    let config_dropshot: ConfigDropshot = Default::default();
 
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -82,12 +49,11 @@ async fn main() -> Result<(), String> {
     let api_context = ExampleContext::new();
 
     // Set up the server.
-    let server = HttpServerStarter::new_with_tls(
+    let server = HttpServerStarter::new(
         &config_dropshot,
         api,
-        None,
+        Some(Arc::new(RequestTimeMiddleware)),
         api_context,
-        config_tls,
     )
     .map_err(|error| format!("failed to create server: {}", error))?
     .start();
@@ -158,5 +124,42 @@ async fn example_api_put_counter(
     } else {
         api_context.counter.store(updated_value.counter, Ordering::SeqCst);
         Ok(HttpResponseUpdatedNoContent())
+    }
+}
+
+#[derive(Debug)]
+struct RequestTimeMiddleware;
+
+#[async_trait::async_trait]
+impl<C: ServerContext> Middleware<C> for RequestTimeMiddleware {
+    async fn handle(
+        &self,
+        server: Arc<DropshotState<C>>,
+        request: Request<Body>,
+        request_id: String,
+        remote_addr: SocketAddr,
+        next: fn(
+            Arc<DropshotState<C>>,
+            Request<Body>,
+            String,
+            SocketAddr,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<hyper::Response<Body>, HttpError>>
+                    + Send,
+            >,
+        >,
+    ) -> Result<http::Response<Body>, HttpError> {
+        let start_time = std::time::Instant::now();
+
+        let response =
+            next(server.clone(), request, request_id, remote_addr).await;
+
+        info!(
+            duration = format!("{}μs", start_time.elapsed().as_micros()),
+            "request completed"
+        );
+
+        response
     }
 }

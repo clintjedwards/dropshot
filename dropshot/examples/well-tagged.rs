@@ -9,6 +9,7 @@ use dropshot::{
     endpoint, ApiDescription, EndpointTagPolicy, HttpError, HttpResponseOk,
     HttpServerStarter, RequestContext, TagConfig, TagDetails, TagExternalDocs,
 };
+use tracing::info;
 
 #[endpoint {
     method = GET,
@@ -45,12 +46,11 @@ async fn get_fryism(
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     // We must specify a configuration with a bind address.  We'll use 127.0.0.1
     // since it's available and won't expose this server outside the host.  We
@@ -97,9 +97,11 @@ async fn main() -> Result<(), String> {
     api.register(get_fryism).unwrap();
 
     // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, ())
+    let server = HttpServerStarter::new(&config_dropshot, api, None, ())
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
+
+    info!(address = server.local_addr().to_string(), "started http server");
 
     // Wait for the server to stop.  Note that there's not any code to shut down
     // this server, so we should never get past this point.

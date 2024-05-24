@@ -30,6 +30,7 @@ use hyper::{
 };
 use rustls;
 use scopeguard::{guard, ScopeGuard};
+use std::fmt::Debug;
 use std::{
     convert::TryFrom,
     future::Future,
@@ -54,6 +55,25 @@ use waitgroup::WaitGroup;
 use crate::config::HandlerTaskMode;
 use crate::RequestInfo;
 
+#[async_trait::async_trait]
+pub trait Middleware<C: ServerContext>: Send + Sync + Debug {
+    async fn handle(
+        &self,
+        server: Arc<DropshotState<C>>,
+        request: Request<Body>,
+        request_id: String,
+        remote_addr: SocketAddr,
+        next: fn(
+            Arc<DropshotState<C>>,
+            Request<Body>,
+            String,
+            SocketAddr,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<Response<Body>, HttpError>> + Send>,
+        >,
+    ) -> Result<Response<Body>, HttpError>;
+}
+
 // TODO Replace this with something else?
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -75,6 +95,8 @@ pub struct DropshotState<C: ServerContext> {
     pub router: HttpRouter<C>,
     /// bound local address for the server.
     pub local_addr: SocketAddr,
+    /// An optional middleware function that wraps all handlers.
+    pub middleware: Option<Arc<dyn Middleware<C>>>,
     /// Identifies how to accept TLS connections
     pub(crate) tls_acceptor: Option<Arc<Mutex<TlsAcceptor>>>,
     /// Worker for the handler_waitgroup associated with this server, allowing
@@ -114,14 +136,16 @@ impl<C: ServerContext> HttpServerStarter<C> {
     pub fn new(
         config: &ConfigDropshot,
         api: ApiDescription<C>,
+        middleware: Option<Arc<dyn Middleware<C>>>,
         private: C,
     ) -> Result<HttpServerStarter<C>, GenericError> {
-        Self::new_with_tls(config, api, private, None)
+        Self::new_with_tls(config, api, middleware, private, None)
     }
 
     pub fn new_with_tls(
         config: &ConfigDropshot,
         api: ApiDescription<C>,
+        middleware: Option<Arc<dyn Middleware<C>>>,
         private: C,
         tls: Option<ConfigTls>,
     ) -> Result<HttpServerStarter<C>, GenericError> {
@@ -141,6 +165,7 @@ impl<C: ServerContext> HttpServerStarter<C> {
                         config,
                         server_config,
                         api,
+                        middleware,
                         private,
                         tls,
                         handler_waitgroup.worker(),
@@ -158,6 +183,7 @@ impl<C: ServerContext> HttpServerStarter<C> {
                         config,
                         server_config,
                         api,
+                        middleware,
                         private,
                         handler_waitgroup.worker(),
                     )?;
@@ -262,6 +288,7 @@ impl<C: ServerContext> InnerHttpServerStarter<C> {
         config: &ConfigDropshot,
         server_config: ServerConfig,
         api: ApiDescription<C>,
+        middleware: Option<Arc<dyn Middleware<C>>>,
         private: C,
         handler_waitgroup_worker: waitgroup::Worker,
     ) -> Result<InnerHttpServerStarterNewReturn<C>, hyper::Error> {
@@ -272,6 +299,7 @@ impl<C: ServerContext> InnerHttpServerStarter<C> {
             private,
             config: server_config,
             router: api.into_router(),
+            middleware,
             local_addr,
             tls_acceptor: None,
             handler_waitgroup_worker: DebugIgnore(handler_waitgroup_worker),
@@ -541,6 +569,7 @@ impl<C: ServerContext> InnerHttpsServerStarter<C> {
         config: &ConfigDropshot,
         server_config: ServerConfig,
         api: ApiDescription<C>,
+        middleware: Option<Arc<dyn Middleware<C>>>,
         private: C,
         tls: &ConfigTls,
         handler_waitgroup_worker: waitgroup::Worker,
@@ -566,6 +595,7 @@ impl<C: ServerContext> InnerHttpsServerStarter<C> {
             private,
             config: server_config,
             router: api.into_router(),
+            middleware,
             local_addr,
             tls_acceptor: Some(acceptor),
             handler_waitgroup_worker: DebugIgnore(handler_waitgroup_worker),
@@ -742,22 +772,6 @@ async fn http_connection_handle<C: ServerContext>(
     Ok(ServerRequestHandler::new(server, remote_addr))
 }
 
-fn format_latency(duration: std::time::Duration) -> String {
-    let secs = duration.as_secs();
-    let millis = duration.as_millis();
-    let micros = duration.as_micros();
-
-    if secs > 0 {
-        format!("{}s", secs)
-    } else if millis > 0 {
-        format!("{}ms", millis)
-    } else if micros > 0 {
-        format!("{}μs", micros)
-    } else {
-        format!("{}ns", duration.as_nanos())
-    }
-}
-
 /// Initial entry point for handling a new request to the HTTP server.  This is
 /// invoked by Hyper when a new request is received.  This function returns a
 /// Result that either represents a valid HTTP response or an error (which will
@@ -771,10 +785,7 @@ async fn http_request_handle_wrap<C: ServerContext>(
     // straightforward, since the request handling code can simply return early
     // with an error and we'll treat it like an error from any of the endpoints
     // themselves.
-    let start_time = std::time::Instant::now();
     let request_id = generate_request_id();
-    let method = request.method().as_str().to_string();
-    let uri = request.uri().to_string();
 
     trace!("incoming request");
     #[cfg(feature = "usdt-probes")]
@@ -798,12 +809,7 @@ async fn http_request_handle_wrap<C: ServerContext>(
     // In the case the client disconnects early, the scopeguard allows us
     // to perform extra housekeeping before this task is dropped.
     let on_disconnect = guard((), |_| {
-        let latency = start_time.elapsed();
-
-        warn!(
-            latency = format_latency(latency),
-            "request handling cancelled (client disconnected)"
-        );
+        trace!("request handling cancelled (client disconnected)");
 
         #[cfg(feature = "usdt-probes")]
         probes::request__done!(|| {
@@ -820,18 +826,42 @@ async fn http_request_handle_wrap<C: ServerContext>(
         });
     });
 
-    let maybe_response =
-        http_request_handle(server, request, &request_id, remote_addr).await;
+    let maybe_response = if let Some(middleware) = &server.middleware {
+        middleware
+            .handle(
+                server.clone(),
+                request,
+                request_id.clone(),
+                remote_addr,
+                move |srv, req, req_id, addr| {
+                    let future =
+                        http_request_handle::<C>(srv, req, req_id, addr);
+
+                    Box::pin(future)
+                        as Pin<
+                            Box<
+                                dyn Future<
+                                        Output = Result<
+                                            Response<Body>,
+                                            HttpError,
+                                        >,
+                                    > + Send,
+                            >,
+                        >
+                },
+            )
+            .await
+    } else {
+        http_request_handle(server, request, request_id.clone(), remote_addr)
+            .await
+    };
 
     // If `http_request_handle` completed, it means the request wasn't
     // cancelled and we can safely "defuse" the scopeguard.
     let _ = ScopeGuard::into_inner(on_disconnect);
 
-    let latency = start_time.elapsed();
     let response = match maybe_response {
         Err(error) => {
-            let message_external = error.external_message.clone();
-            let message_internal = error.internal_message.clone();
             let r = error.into_response(&request_id);
 
             #[cfg(feature = "usdt-probes")]
@@ -845,34 +875,10 @@ async fn http_request_handle_wrap<C: ServerContext>(
                 }
             });
 
-            // TODO-debug: add request and response headers here
-            info!(
-                remote_addr = %remote_addr,
-                req_id = request_id.clone(),
-                method = method,
-                uri = uri,
-                response_code = r.status().as_str(),
-                latency = format_latency(latency),
-                error_message_internal = message_internal,
-                error_message_external = message_external,
-                "request completed"
-            );
-
             r
         }
 
         Ok(response) => {
-            // TODO-debug: add request and response headers here
-            info!(
-                remote_addr = %remote_addr,
-                req_id = request_id.clone(),
-                method = method,
-                uri = uri,
-                response_code = response.status().as_str(),
-                latency = format_latency(latency),
-                "request completed"
-            );
-
             #[cfg(feature = "usdt-probes")]
             probes::request__done!(|| {
                 crate::dtrace::ResponseInfo {
@@ -894,7 +900,7 @@ async fn http_request_handle_wrap<C: ServerContext>(
 async fn http_request_handle<C: ServerContext>(
     server: Arc<DropshotState<C>>,
     request: Request<Body>,
-    request_id: &str,
+    request_id: String,
     remote_addr: std::net::SocketAddr,
 ) -> Result<Response<Body>, HttpError> {
     // TODO-hardening: is it correct to (and do we correctly) read the entire
@@ -912,7 +918,7 @@ async fn http_request_handle<C: ServerContext>(
         request: RequestInfo::new(&request, remote_addr),
         path_variables: lookup_result.variables,
         body_content_type: lookup_result.body_content_type,
-        request_id: request_id.to_string(),
+        request_id: request_id.clone(),
     };
     let handler = lookup_result.handler;
 
@@ -1118,8 +1124,9 @@ mod test {
         let mut api = ApiDescription::new();
         api.register(handler).unwrap();
 
-        let server =
-            HttpServerStarter::new(&config_dropshot, api, 0).unwrap().start();
+        let server = HttpServerStarter::new(&config_dropshot, api, None, 0)
+            .unwrap()
+            .start();
 
         server
     }

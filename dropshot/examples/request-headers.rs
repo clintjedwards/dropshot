@@ -17,23 +17,26 @@ use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     let config_dropshot: ConfigDropshot = Default::default();
     let mut api = ApiDescription::new();
     api.register(example_api_get_header_generic).unwrap();
 
-    let server = HttpServerStarter::new(&config_dropshot, api, ())
+    let server = HttpServerStarter::new(&config_dropshot, api, None, ())
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
+
+    info!(address = server.local_addr().to_string(), "started http server");
+
     server.await
 }
 

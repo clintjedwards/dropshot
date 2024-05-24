@@ -88,6 +88,7 @@ fn make_server<T: Send + Sync + 'static>(
     HttpServerStarter::new_with_tls(
         config,
         api_description.unwrap_or_else(dropshot::ApiDescription::new),
+        None,
         context,
         tls,
     )

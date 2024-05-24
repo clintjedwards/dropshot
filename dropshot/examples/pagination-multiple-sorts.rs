@@ -281,12 +281,11 @@ async fn example_list_projects(
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Uncomment for logs
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::INFO)
-    //     .with_target(false)
-    //     .compact()
-    //     .init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .compact()
+        .init();
 
     let port = std::env::args()
         .nth(1)
@@ -303,9 +302,11 @@ async fn main() -> Result<(), String> {
     };
     let mut api = ApiDescription::new();
     api.register(example_list_projects).unwrap();
-    let server = HttpServerStarter::new(&config_dropshot, api, ctx)
+    let server = HttpServerStarter::new(&config_dropshot, api, None, ctx)
         .map_err(|error| format!("failed to create server: {}", error))?
         .start();
+
+    info!(address = server.local_addr().to_string(), "started http server");
 
     // Print out some example requests to start with.
     print_example_requests(&server.local_addr());
