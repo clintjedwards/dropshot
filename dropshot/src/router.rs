@@ -910,11 +910,12 @@ mod test {
 
     #[test]
     fn test_no_backmatching() {
-        // if the indented route starts with a literal that exists we don't
+        // if the indicated route starts with a literal that exists we don't
         // go back and match on variable strings even if the route exists.
         // For example, for a router with the routes `/projects/default` and `/{id}/default/lol`,
         // If the path "/projects/default/lol" comes in it will be a 404 since the first segment
         // already matched with the `projects` literal.
+        // TODO():We can probably solve for this but, not worth the time right now.
         let mut router = HttpRouter::new();
         router.insert(new_endpoint(
             new_handler_named("route_one"),
@@ -926,14 +927,22 @@ mod test {
             Method::GET,
             "/{id}/default/lol",
         ));
+        // Access to the more specific route works
         let result = router
             .lookup_route(&Method::GET, "/projects/default".into())
             .unwrap();
         assert_eq!(result.handler.label(), "route_one");
 
+        // Access to /projects/ starts down the /projects path and therefore doesnt' match
         assert!(router
             .lookup_route(&Method::GET, "/projects/default/lol".into())
             .is_err());
+
+        // Access to the less specific path as long as it's not /projects works.
+        let result = router
+            .lookup_route(&Method::GET, "/some_id/default/lol".into())
+            .unwrap();
+        assert_eq!(result.handler.label(), "route_two");
     }
 
     #[test]
