@@ -6,6 +6,7 @@ use crate::handler::HttpHandlerFunc;
 use crate::handler::HttpResponse;
 use crate::handler::HttpRouteHandler;
 use crate::handler::RouteHandler;
+use crate::handler::StubRouteHandler;
 use crate::router::route_path_to_segments;
 use crate::router::HttpRouter;
 use crate::router::PathSegment;
@@ -13,6 +14,7 @@ use crate::schema_util::j2oas_schema;
 use crate::server::ServerContext;
 use crate::type_util::type_is_scalar;
 use crate::type_util::type_is_string_enum;
+use crate::HttpError;
 use crate::HttpErrorResponseBody;
 use crate::CONTENT_TYPE_JSON;
 use crate::CONTENT_TYPE_MULTIPART_FORM_DATA;
@@ -27,7 +29,16 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt;
 use std::sync::Arc;
+
+/// A type used to produce an `ApiDescription` without a concrete implementation
+/// of an API trait.
+///
+/// This type is never constructed, and is used only as a type parameter to
+/// [`ApiEndpoint::new_for_types`].
+#[derive(Copy, Clone, Debug)]
+pub enum StubContext {}
 
 /// ApiEndpoint represents a single API endpoint associated with an
 /// ApiDescription. It has a handler, HTTP method (e.g. GET, POST), and a path--
@@ -109,6 +120,89 @@ impl<'a, Context: ServerContext> ApiEndpoint<Context> {
         self.deprecated = deprecated;
         self
     }
+}
+
+impl<'a> ApiEndpoint<StubContext> {
+    /// Create a new API endpoint without an actual handler behind it, which
+    /// panics if called.
+    ///
+    /// This is useful for generating OpenAPI documentation without having to
+    /// implement the actual handler function. In that capacity, it is used for
+    /// trait-based dropshot APIs.
+    ///
+    /// # Example
+    ///
+    /// This must be invoked by specifying the request and response types as
+    /// type parameters.
+    ///
+    /// ```rust
+    /// use dropshot::{ApiDescription, ApiEndpoint, HttpError, HttpResponseOk, Query, StubContext};
+    /// use schemars::JsonSchema;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Debug, Deserialize, JsonSchema)]
+    /// struct GetValueParams {
+    ///     key: String,
+    /// }
+    ///
+    /// let mut api: ApiDescription<StubContext> = ApiDescription::new();
+    /// let endpoint = ApiEndpoint::new_for_types::<
+    ///     // The request type is always a tuple. Note the 1-tuple syntax.
+    ///     (Query<GetValueParams>,),
+    ///     // The response type is always Result<T, HttpError> where T implements
+    ///     // HttpResponse.
+    ///     Result<HttpResponseOk<String>, HttpError>,
+    /// >(
+    ///     "get_value".to_string(),
+    ///     http::Method::GET,
+    ///     "application/json",
+    ///     "/value",
+    /// );
+    /// api.register(endpoint).unwrap();
+    /// ```
+    pub fn new_for_types<FuncParams, ResultType>(
+        operation_id: String,
+        method: Method,
+        content_type: &'a str,
+        path: &'a str,
+    ) -> Self
+    where
+        FuncParams: RequestExtractor + 'static,
+        ResultType: HttpResultType,
+    {
+        let body_content_type =
+            ApiEndpointBodyContentType::from_mime_type(content_type)
+                .expect("unsupported mime type");
+        let func_parameters = FuncParams::metadata(body_content_type.clone());
+        let response = ResultType::Response::response_metadata();
+        let handler = StubRouteHandler::new_with_name(&operation_id);
+        ApiEndpoint {
+            operation_id,
+            handler,
+            method,
+            path: path.to_string(),
+            parameters: func_parameters.parameters,
+            body_content_type,
+            response,
+            summary: None,
+            description: None,
+            tags: vec![],
+            extension_mode: func_parameters.extension_mode,
+            visible: true,
+            deprecated: false,
+        }
+    }
+}
+
+pub trait HttpResultType {
+    type Response: HttpResponse + Send + Sync + 'static;
+}
+
+impl<T> HttpResultType for Result<T, HttpError>
+where
+    T: HttpResponse + Send + Sync + 'static,
+{
+    type Response = T;
 }
 
 /// ApiEndpointParameter represents the discrete path and query parameters for a
@@ -280,11 +374,15 @@ impl<Context: ServerContext> ApiDescription<Context> {
     }
 
     /// Register a new API endpoint.
-    pub fn register<T>(&mut self, endpoint: T) -> Result<(), String>
+    pub fn register<T>(
+        &mut self,
+        endpoint: T,
+    ) -> Result<(), ApiDescriptionRegisterError>
     where
         T: Into<ApiEndpoint<Context>>,
     {
         let e = endpoint.into();
+        let operation_id = e.operation_id.clone();
 
         // manually outline, see https://matklad.github.io/2021/09/04/fast-rust-builds.html#Keeping-Instantiations-In-Check
         fn _register<C: ServerContext>(
@@ -300,7 +398,10 @@ impl<Context: ServerContext> ApiDescription<Context> {
             Ok(())
         }
 
-        _register(self, e)?;
+        _register(self, e).map_err(|error| ApiDescriptionRegisterError {
+            operation_id,
+            message: error,
+        })?;
 
         Ok(())
     }
@@ -458,7 +559,7 @@ impl<Context: ServerContext> ApiDescription<Context> {
                     }
                 }
                 ApiEndpointParameterMetadata::Query(ref name) => {
-                    if path_segments.get(name).is_some() {
+                    if path_segments.contains_key(name) {
                         return Err(format!(
                             "the parameter '{}' is specified for both query \
                              and path parameters",
@@ -573,9 +674,9 @@ impl<Context: ServerContext> ApiDescription<Context> {
             };
             let mut operation = openapiv3::Operation::default();
             operation.operation_id = Some(endpoint.operation_id.clone());
-            operation.summary = endpoint.summary.clone();
-            operation.description = endpoint.description.clone();
-            operation.tags = endpoint.tags.clone();
+            operation.summary.clone_from(&endpoint.summary);
+            operation.description.clone_from(&endpoint.description);
+            operation.tags.clone_from(&endpoint.tags);
             operation.deprecated = endpoint.deprecated;
 
             operation.parameters = endpoint
@@ -619,7 +720,7 @@ impl<Context: ServerContext> ApiDescription<Context> {
                         ApiEndpointParameterLocation::Query => {
                             Some(openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Query {
-                                    parameter_data: parameter_data,
+                                    parameter_data,
                                     allow_reserved: false,
                                     style: openapiv3::QueryStyle::Form,
                                     allow_empty_value: None,
@@ -629,7 +730,7 @@ impl<Context: ServerContext> ApiDescription<Context> {
                         ApiEndpointParameterLocation::Path => {
                             Some(openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Path {
-                                    parameter_data: parameter_data,
+                                    parameter_data,
                                     style: openapiv3::PathStyle::Simple,
                                 },
                             ))
@@ -670,7 +771,7 @@ impl<Context: ServerContext> ApiDescription<Context> {
                     );
 
                     Some(openapiv3::ReferenceOr::Item(openapiv3::RequestBody {
-                        content: content,
+                        content,
                         required: true,
                         ..Default::default()
                     }))
@@ -848,7 +949,7 @@ impl<Context: ServerContext> ApiDescription<Context> {
             "Error".to_string(),
             openapiv3::ReferenceOr::Item(openapiv3::Response {
                 description: "Error".to_string(),
-                content: content,
+                content,
                 ..Default::default()
             }),
         );
@@ -877,6 +978,74 @@ impl<Context: ServerContext> ApiDescription<Context> {
         self.router
     }
 }
+
+/// A collection of errors that occurred while building an `ApiDescription`.
+///
+/// Returned by the `api_description` and `stub_api_description` functions
+/// generated by the [`api_description`](macro@crate::api_description) macro.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiDescriptionBuildErrors {
+    errors: Vec<ApiDescriptionRegisterError>,
+}
+
+impl ApiDescriptionBuildErrors {
+    /// Create a new `ApiDescriptionBuildErrors` with the given errors.
+    pub fn new(errors: Vec<ApiDescriptionRegisterError>) -> Self {
+        Self { errors }
+    }
+
+    /// Return a list of the errors that occurred.
+    pub fn errors(&self) -> &[ApiDescriptionRegisterError] {
+        &self.errors
+    }
+}
+
+impl fmt::Display for ApiDescriptionBuildErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "failed to register endpoints: \n")?;
+        for error in &self.errors {
+            write!(
+                f,
+                "  - registering '{}' failed: {}\n",
+                error.operation_id, error.message
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ApiDescriptionBuildErrors {}
+
+/// An error that occurred while registering an individual API endpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiDescriptionRegisterError {
+    operation_id: String,
+    message: String,
+}
+
+impl ApiDescriptionRegisterError {
+    /// Return the name of the endpoint that failed to register.
+    pub fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+
+    /// Return a message describing what occurred while registering the endpoint.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for ApiDescriptionRegisterError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "failed to register endpoint '{}': {}",
+            self.operation_id, self.message
+        )
+    }
+}
+
+impl std::error::Error for ApiDescriptionRegisterError {}
 
 /// Returns true iff the schema represents the void schema that matches no data.
 fn is_empty(schema: &schemars::schema::Schema) -> bool {
@@ -1170,11 +1339,11 @@ mod test {
             CONTENT_TYPE_JSON,
             "/",
         ));
+        let error = ret.unwrap_err();
         assert_eq!(
-            ret,
-            Err("specified parameters do not appear in the path (a,b)"
-                .to_string())
-        )
+            error.message(),
+            "specified parameters do not appear in the path (a,b)",
+        );
     }
 
     #[test]
@@ -1187,10 +1356,8 @@ mod test {
             CONTENT_TYPE_JSON,
             "/{a}/{aa}/{b}/{bb}",
         ));
-        assert_eq!(
-            ret,
-            Err("path parameters are not consumed (aa,bb)".to_string())
-        );
+        let error = ret.unwrap_err();
+        assert_eq!(error.message(), "path parameters are not consumed (aa,bb)");
     }
 
     #[test]
@@ -1203,11 +1370,11 @@ mod test {
             CONTENT_TYPE_JSON,
             "/{c}/{d}",
         ));
+        let error = ret.unwrap_err();
         assert_eq!(
-            ret,
-            Err("path parameters are not consumed (c,d) and specified \
-                 parameters do not appear in the path (a,b)"
-                .to_string())
+            error.message(),
+            "path parameters are not consumed (c,d) and \
+             specified parameters do not appear in the path (a,b)"
         );
     }
 
@@ -1255,7 +1422,7 @@ mod test {
         let mut api = ApiDescription::new();
         let error = api.register(test_dup_names_handler).unwrap_err();
         assert_eq!(
-            error,
+            error.message(),
             "the parameter 'thing' is specified for both query and path \
              parameters",
         );
@@ -1275,7 +1442,8 @@ mod test {
             CONTENT_TYPE_JSON,
             "/{a}/{b}",
         ));
-        assert_eq!(ret, Err("At least one tag is required".to_string()));
+        let error = ret.unwrap_err();
+        assert_eq!(error.message(), "At least one tag is required".to_string());
     }
 
     #[test]
@@ -1296,8 +1464,8 @@ mod test {
             .tag("howdy")
             .tag("pardner"),
         );
-
-        assert_eq!(ret, Err("Exactly one tag is required".to_string()));
+        let error = ret.unwrap_err();
+        assert_eq!(error.message(), "Exactly one tag is required");
     }
 
     #[test]

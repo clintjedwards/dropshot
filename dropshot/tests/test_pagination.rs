@@ -212,7 +212,7 @@ async fn test_paginate_errors() {
                       string",
         },
         ErrorTestCase {
-            path: format!("/intapi?limit={}", (std::u64::MAX as u128) + 1),
+            path: format!("/intapi?limit={}", u128::from(std::u64::MAX) + 1),
             message: "unable to parse query string: number too large to fit \
                       in target type",
         },

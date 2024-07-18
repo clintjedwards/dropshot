@@ -107,6 +107,7 @@ fn make_config(
         ),
         request_body_max_bytes: 1024,
         default_handler_task_mode,
+        log_headers: Default::default(),
     }
 }
 
@@ -322,7 +323,18 @@ async fn test_config_bind_address_https_buffer() {
                 bind_port,
                 HandlerTaskMode::CancelOnDisconnect,
             );
+<<<<<<< HEAD
             make_server(0, &config, tls, None).start()
+||||||| 0bb8694
+            make_server(0, &config, &self.log, tls, None).start()
+        }
+
+        fn log(&self) -> &Logger {
+            &self.log
+        }
+=======
+            make_server(0, &config, &self.log, tls, None).start()
+>>>>>>> upstream/main
         }
     }
 

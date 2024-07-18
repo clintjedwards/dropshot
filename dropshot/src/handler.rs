@@ -39,7 +39,7 @@ use super::server::DropshotState;
 use super::server::ServerContext;
 use crate::api_description::{
     ApiEndpointBodyContentType, ApiEndpointHeader, ApiEndpointResponse,
-    ApiSchemaGenerator,
+    ApiSchemaGenerator, StubContext,
 };
 use crate::pagination::PaginationParams;
 use crate::router::VariableSet;
@@ -488,6 +488,39 @@ where
     }
 }
 
+/// An unimplemented [`RouteHandler`] that panics when invoked.
+///
+/// This may be used to generate an OpenAPI document for API traits without
+/// requiring a concrete implementation.
+#[derive(Debug)]
+pub(crate) struct StubRouteHandler {
+    label: String,
+}
+
+#[async_trait]
+impl RouteHandler<StubContext> for StubRouteHandler {
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    async fn handle_request(
+        &self,
+        _: RequestContext<StubContext>,
+        _: hyper::Request<hyper::Body>,
+    ) -> HttpHandlerResult {
+        unimplemented!("stub handler called, not implemented: {}", self.label)
+    }
+}
+
+impl StubRouteHandler {
+    /// Returns a new `StubRouteHandler` with the given label.
+    pub(crate) fn new_with_name(
+        label: &str,
+    ) -> Arc<dyn RouteHandler<StubContext>> {
+        Arc::new(StubRouteHandler { label: label.to_string() })
+    }
+}
+
 // Response Type Conversion
 //
 // See the discussion on macro `impl_HttpHandlerFunc_for_func_with_params` for a
@@ -503,6 +536,13 @@ pub trait HttpResponse {
     /// Extract status code and structure metadata for the non-error response.
     /// Type information for errors is handled generically across all endpoints.
     fn response_metadata() -> ApiEndpointResponse;
+
+    /// Extract the status code from the concrete response instance.
+    ///
+    /// This may differ from the value extracted from `response_metadata()` in
+    /// error cases or if one has built a response manually using something like
+    /// [`Response<Body>`].
+    fn status_code(&self) -> StatusCode;
 }
 
 /// `Response<Body>` is used for free-form responses. The implementation of
@@ -513,6 +553,9 @@ impl HttpResponse for Response<Body> {
     }
     fn response_metadata() -> ApiEndpointResponse {
         ApiEndpointResponse::default()
+    }
+    fn status_code(&self) -> StatusCode {
+        self.status()
     }
 }
 
@@ -642,6 +685,9 @@ where
             description: Some(T::DESCRIPTION.to_string()),
             ..Default::default()
         }
+    }
+    fn status_code(&self) -> StatusCode {
+        T::STATUS_CODE
     }
 }
 
@@ -1006,5 +1052,9 @@ impl<
 
         metadata.headers = headers;
         metadata
+    }
+
+    fn status_code(&self) -> StatusCode {
+        T::STATUS_CODE
     }
 }

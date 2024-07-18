@@ -10,10 +10,14 @@ repository = "https://github.com/oxidecomputer/dropshot/"
 [lib]
 proc-macro = true
 
+[lints]
+workspace = true
+
 [dependencies]
+heck = "0.5.0"
 proc-macro2 = "1"
 quote = "1"
-serde_tokenstream = "0.2"
+serde_tokenstream = "0.2.1"
 
 [dependencies.serde]
 version = "1.0"
@@ -21,7 +25,9 @@ features = [ "derive" ]
 
 [dependencies.syn]
 version = "2.0"
-features = [ "full" ]
+features = [ "full", "visit" ]
 
 [dev-dependencies]
+expectorate = "1.1.0"
+prettyplease = "0.2.20"
 schema = "0.1.0"
