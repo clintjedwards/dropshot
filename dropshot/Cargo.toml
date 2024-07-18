@@ -1,7 +1,7 @@
 [package]
 name = "dropshot"
 description = "expose REST APIs from a Rust program"
-version = "0.10.1-dev"
+version = "0.11.0-dev"
 authors = [
     "David Pacheco <dap@oxidecomputer.com>",
     "Clint Edwards <clint.j.edwards@gmail.com>",
