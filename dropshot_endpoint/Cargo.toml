@@ -1,8 +1,11 @@
 [package]
 name = "dropshot_endpoint"
 description = "macro used by dropshot consumers for registering handlers"
-version = "0.11.0-dev"
-authors = ["Adam H. Leventhal <ahl@oxide.computer>"]
+version = "0.11.1-dev"
+authors = [
+    "Adam H. Leventhal <ahl@oxide.computer>",
+    "Clint J. Edwards <clint.j.edwards@gmail.com>",
+]
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/oxidecomputer/dropshot/"

@@ -123,14 +123,6 @@ pub struct ServerConfig {
     /// Default behavior for HTTP handler functions with respect to clients
     /// disconnecting early.
     pub default_handler_task_mode: HandlerTaskMode,
-    /// A list of header names to include as extra properties in the log
-    /// messages emitted by the per-request logger.  Each header will, if
-    /// present, be included in the output with a "hdr_"-prefixed property name
-    /// in lower case that has all hyphens replaced with underscores; e.g.,
-    /// "X-Forwarded-For" will be included as "hdr_x_forwarded_for".  No attempt
-    /// is made to deal with headers that appear multiple times in a single
-    /// request.
-    pub log_headers: Vec<String>,
 }
 
 pub struct HttpServerStarter<C: ServerContext> {
@@ -163,7 +155,6 @@ impl<C: ServerContext> HttpServerStarter<C> {
             page_max_nitems: NonZeroU32::new(10000).unwrap(),
             page_default_nitems: NonZeroU32::new(100).unwrap(),
             default_handler_task_mode: config.default_handler_task_mode,
-            log_headers: config.log_headers.clone(),
         };
 
         let handler_waitgroup = WaitGroup::new();
