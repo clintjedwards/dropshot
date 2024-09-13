@@ -14,7 +14,7 @@ This fork is because I wanted slightly different design decisions than the crew 
 I added are:
 
 * **Allowed routes to overlap, with the more specific route winning over less specific route(those with path vars).**
-    ** This is similar to https://go.dev/blog/routing-enhancements)[Go's new routing enhancements]. (And it
+    ** This is similar to https://go.dev/blog/routing-enhancements[Go's new routing enhancements]. (And it
     intuitively makes sense).
     ** https://github.com/oxidecomputer/dropshot/issues/199[Oxide discussion on route overlapping here].
     ** The motivation is because I usually keep things in a single binary and it just looks better for my frontend
