@@ -78,6 +78,10 @@ pub struct RequestContext<Context: ServerContext> {
     pub body_content_type: ApiEndpointBodyContentType,
     /// unique id assigned to this request
     pub request_id: String,
+    /// logger for this specific request
+    pub log: Logger,
+    /// The operation ID for the endpoint handler method
+    pub operation_id: String,
     /// basic request information (method, URI, etc.)
     pub request: RequestInfo,
 }

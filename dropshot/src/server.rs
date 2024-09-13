@@ -919,6 +919,7 @@ async fn http_request_handle<C: ServerContext>(
         path_variables: lookup_result.variables,
         body_content_type: lookup_result.body_content_type,
         request_id: request_id.clone(),
+        operation_id: lookup_result.operation_id,
     };
     let handler = lookup_result.handler;
 
