@@ -15,7 +15,7 @@
 //!
 //! This example puts the interface and implementation in separate modules.
 
-use dropshot::{ConfigLogging, ConfigLoggingLevel, HttpServerStarter};
+use dropshot::HttpServerStarter;
 
 /// The interface.
 mod api {
@@ -135,13 +135,6 @@ mod imp {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let config_dropshot = Default::default();
-    // For simplicity, we'll configure an "info"-level logger that writes to
-    // stderr assuming that it's a terminal.
-    let config_logging =
-        ConfigLogging::StderrTerminal { level: ConfigLoggingLevel::Info };
-    let log = config_logging
-        .to_logger("example-api-trait")
-        .map_err(|error| format!("failed to create logger: {}", error))?;
 
     // Print the OpenAPI spec to stdout as an example.
     println!("OpenAPI spec:");
@@ -154,8 +147,8 @@ async fn main() -> Result<(), String> {
     let server = HttpServerStarter::new(
         &config_dropshot,
         my_api,
+        None,
         imp::AtomicCounter::new(),
-        &log,
     )
     .map_err(|error| format!("failed to create server: {}", error))?
     .start();
