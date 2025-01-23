@@ -6,8 +6,8 @@ use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
-use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use futures::FutureExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -23,30 +23,20 @@ async fn main() -> Result<(), String> {
     // since it's available and won't expose this server outside the host.  We
     // request port 0, which allows the operating system to pick any available
     // port.
-    let config_dropshot = Default::default();
-
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .compact()
         .init();
 
-    // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(example_api_get_counter).unwrap();
 
-    // The functions that implement our API endpoints will share this context.
     let api_context = Arc::new(ExampleContext::new());
 
-    // Set up the server.
-    let server = HttpServerStarter::new(
-        &config_dropshot,
-        api,
-        None,
-        api_context.clone(),
-    )
-    .map_err(|error| format!("failed to create server: {}", error))?
-    .start();
+    let server = ServerBuilder::new(api, api_context.clone(), None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

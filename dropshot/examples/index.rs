@@ -2,13 +2,12 @@
 //! Example use of Dropshot for matching wildcard paths to serve static content.
 
 use dropshot::ApiDescription;
-use dropshot::ConfigDropshot;
+use dropshot::Body;
 use dropshot::HttpError;
-use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use dropshot::{endpoint, Path};
 use http::{Response, StatusCode};
-use hyper::Body;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tracing::info;
@@ -19,22 +18,18 @@ async fn main() -> Result<(), String> {
     // since it's available and won't expose this server outside the host.  We
     // request port 0, which allows the operating system to pick any available
     // port.
-    let config_dropshot: ConfigDropshot = Default::default();
-
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .compact()
         .init();
 
-    // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(index).unwrap();
 
-    // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, None, ())
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
+    let server = ServerBuilder::new(api, (), None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

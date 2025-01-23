@@ -13,7 +13,217 @@
 
 == Unreleased changes (release date TBD)
 
-https://github.com/oxidecomputer/dropshot/compare/v0.11.0\...HEAD[Full list of commits]
+https://github.com/oxidecomputer/dropshot/compare/v0.15.1\...HEAD[Full list of commits]
+
+== 0.15.1 (released 2024-12-06)
+
+https://github.com/oxidecomputer/dropshot/compare/v0.15.0\...v0.15.1[Full list of commits]
+
+* https://github.com/oxidecomputer/dropshot/pull/1194[#1194] Fixes a bug introduced in 0.15.0 where the internal message for an error was being sent as the external message.
+
+== 0.15.0 (released 2024-12-04)
+
+https://github.com/oxidecomputer/dropshot/compare/v0.14.0\...v0.15.0[Full list of commits]
+
+=== Breaking changes
+
+
+* The `HttpError` type now contains a `dropshot::ErrorStatusCode` rather than an
+`http::StatusCode`. An `ErrorStatusCode` is a newtype around `http::StatusCode`
+that may only be constructed from 4xx or 5xx status codes.
++
+Code which uses `http::StatusCode` constants for well-known status codes can
+be updated to the new API by replacing `http::StatusCode::...` with
+`dropshot::ErrorStatusCode`. For example:
++
+```rust
+dropshot::HttpError {
+    status: http::StatusCode::NOT_FOUND,
+    // ...
+}
+```
++
+becomes:
++
+```rust
+dropshot::HttpError {
+    status: dropshot::ErrorStatusCode::NOT_FOUND,
+    // ...
+}
+```
++
+To represent extension status codes that lack well-known constants, use
+`ErrorStatusCode::from_u16` (or the corresponding `TryFrom` implementation).
+This is analogous to the similarly-named method on `http::StatusCode`, so this:
++
+```rust
+http::StatusCode::from_u16(420).expect("420 is a valid status code")
+```
++
+becomes this:
++
+```rust
+dropshot::ErrorStatusCode::from_u16(420).expect("420 is a valid 4xx status code")
+```
++
+Finally, note that `ErrorStatusCode` implements `TryFrom<http::StatusCode>`, so
+`StatusCode`s from external sources may be converted into `ErrorStatusCode`s as
+necessary.
+
+* The `HttpError::for_status` constructor, which required that the provided
+status code be a 4xx client error and panicked if it was not, has been removed.
+It has been replaced with a new `HttpError::for_client_error_with_status`
+constructor, which takes a `dropshot::ClientErrorStatusCode` type rather than a
+`http::StatusCode`. Ensuring that only client errors are passed to this
+constructor at the type level removes the often-surprising panic on non-4xx errors.
++
+`ClientErrorStatusCode` provides constants for each well known 4xx status code,
+similarly to `ErrorStatusCode`. Uses of `HttpError::for_status`
+that use a constant status code, like this:
++
+```rust
+HttpError::for_status(None, http::StatusCode::GONE)
+```
++
+becomes this:
++
+```rust
+HttpError::for_client_error_with_status(None, dropshot::ClientErrorStatusCode::GONE)
+```
++
+Additionally, `ErrorStatusCode` provides an `as_client_error` method that
+returns a `ClientErrorStatusCode` if the status code is a client error, or an
+error.
+
+* `HttpError` now contains an `Option<Box<http::HeaderMap>>` of headers to add
+to error responses constructed for the error.
++
+Code that constructs `HttpError` literals must now initialize this field.
+
+=== Other notable changes
+
+* Endpoint handler functions may now return any error type that implements the
+new `dropshot::HttpResponseError` trait. Previously, they could only return
+`dropshot::HttpError`. This change permits endpoints to return user-defined
+error types, and generate OpenAPI response schemas for those types.
++
+For details on how to implement `HttpResponseError` for user-defined types, see
+the trait documentation, or
+https://github.com/oxidecomputer/dropshot/blob/main/dropshot/examples/custom-error.rs[`examples/custom-error.rs`].
+
+== 0.14.0 (released 2024-12-02)
+
+https://github.com/oxidecomputer/dropshot/compare/v0.13.0\...v0.14.0[Full list of commits]
+
+=== Breaking changes
+
+* The `request_body_max_bytes` config has been renamed to `default_request_body_max_bytes`. This is to make its semantics clear with respect to per-endpoint request limits.
++
+Defining the old config option will produce an error, guiding you to perform the rename.
+
+* Within `RequestContext`, endpoint-specific metadata has been moved to an `endpoint` field:
+** `rqctx.operation_id` is now `rqctx.endpoint.operation_id`.
+** `rqctx.path_variables` is now `rqctx.endpoint.variables`.
+** `rqctx.body_content_type` is now `rqctx.endpoint.body_content_type`.
+
+=== Other notable changes
+
+* Dropshot now supports per-endpoint size limits, via the `request_body_max_bytes` parameter to `#[endpoint]`. For example, to set a limit of 1 MiB on an endpoint:
++
+```rust
+#[endpoint {
+    method = POST,
+    path = "/upload-bundle",
+    request_body_max_bytes = 1 * 1024 * 1024,
+}]
+async fn upload_bundle(
+    rqctx: RequestContext<MyContext>,  // or RequestContext<Self::Context> with API traits
+    body: UntypedBody,
+) -> /* ... */ {
+    // ...
+}
+```
++
+If not specified, the limit defaults to the server configuration's `default_request_body_max_bytes`.
+
+== 0.13.0 (released 2024-11-13)
+
+https://github.com/oxidecomputer/dropshot/compare/v0.12.0\...v0.13.0[Full list of commits]
+
+=== Breaking Changes
+
+* Dropshot now expects that APIs use https://semver.org/[Semver] values for their version string.  Concretely, this only means that the `version` argument to `ApiDescription::openapi` (which generates an OpenAPI document) must be a `semver::Version`.  Previously, it was `AsRef<str>`.
+* If you're invoking `ApiEndpoint::new` directly or constructing one as a literal (both of which are uncommon), you must provide a new `ApiEndpointVersions` value describing which versions this endpoint implements.  You can use `ApiEndpointVersions::All` if you don't care about versioning.
+
+=== Other notable changes
+
+* https://github.com/oxidecomputer/dropshot/pull/1122[#1122] Adds a new `ServerBuilder` as the primary way of constructing a Dropshot server.  This replaces `HttpServerStarter::new()` and `HttpServerStarter::new_with_tls()`.  These older functions still exist for compatibility.  They may be removed in an upcoming release, along with the `HttpServerStarter`.
++
+In this release, using the builder interface is not very different from using these older functions.  But as we look at adding new construction-time options (e.g., for API versioning), those will only be added to the builder.
++
+The builder also provides structured errors rather than the `GenericError` provided by these older functions.
++
+Most non-TLS callers were using `HttpServerStarter::new()` and then calling `start()` right away.  In that case, you can replace:
++
+```rust
+HttpServerStarter::new(&config, api, private, &log).map_err(...)?.start()
+```
++
+with:
++
+```rust
+ServerBuilder::new(api, private, log).config(config).start().map_err(...)?
+```
++
+If you were using `HttpServerStarter::new_with_tls()`, you'd similarly replace:
++
+```rust
+HttpServerStarter::new_with_tls(&config, api, private, &log, tls).map_err(...)?.start()
+```
++
+with:
++
+```rust
+ServerBuilder::new(api, private, log).config(config).tls(tls).start().map_err(...)?
+```
++
+If you were _not_ invoking `start()` immediately before, you can still construct an intermediate starter object with `build_starter()`.  If you were doing this:
++
+```rust
+let starter = HttpServerStarter::new(&config, api, private, &log).map_err(...)?;
+...
+starter.start()
+```
++
+Then you can now do:
++
+```rust
+let starter = ServerBuilder::new(api, private, log).config(config).build_starter().map_err(...)?;
+...
+starter.start()
+```
++
+We'd like to remove the `HttpServerStarter` altogether, so let us know if you're still using it for some reason.
+
+* https://github.com/oxidecomputer/dropshot/pull/1115[#1115] Dropshot now includes **experimental** support for hosting multiple versions of an API at a single server and routing to the correct version based on the incoming request.  See documentation for details.  If you don't care about this, you can mostly ignore it, but see "Breaking Changes" below.
++
+By "experimental" we only mean that the API may change in upcoming releases.
+
+== 0.12.0 (released 2024-09-26)
+
+https://github.com/oxidecomputer/dropshot/compare/v0.11.0\...v0.12.0[Full list of commits]
+
+=== Breaking Changes
+
+* https://github.com/oxidecomputer/dropshot/pull/1028[#1028] Updates Dropshot for `hyper` 1.0 and `http` 1.0.  Since consumers provide Dropshot with values from `hyper` and `http`, you'll need to update to `hyper` 1.0 and `http` 1.0 (or newer compatible versions), too.
+
+==== Upgrading to hyper 1.0
+
+1. Update your crate's dependencies on `hyper` and `http` to 1.0 (or a newer compatible version) in Cargo.toml.
+2. Replace any references to `hyper::Body` with `dropshot::Body` instead.
+3. You may need to update your use of `dropshot::Body`; the `http-body-util` can be helpful.
+
+There are no other known breaking changes in these crates that affect Dropshot.  If you have any trouble with this upgrade, please let us know by filing an issue.
 
 == 0.11.0 (released 2024-08-21)
 

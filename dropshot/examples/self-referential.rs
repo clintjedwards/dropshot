@@ -4,18 +4,16 @@
 
 use dropshot::endpoint;
 use dropshot::ApiDescription;
-use dropshot::ConfigDropshot;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
-use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -25,21 +23,14 @@ async fn main() -> Result<(), String> {
         .compact()
         .init();
 
-    let config_dropshot: ConfigDropshot = Default::default();
-
     let mut api = ApiDescription::new();
     api.register(example_api_get_counter).unwrap();
 
     let api_context = Arc::new(ExampleContext::new());
 
-    // Set up the server.
-    let server =
-        HttpServerStarter::new(&config_dropshot, api, None, api_context)
-            .map_err(|error| format!("failed to create server: {}", error))?
-            .start();
-
-    info!(address = server.local_addr().to_string(), "started http server");
-
+    let server = ServerBuilder::new(api, api_context, None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
     let shutdown = server.wait_for_shutdown();
 
     tokio::task::spawn(async move {

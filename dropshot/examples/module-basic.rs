@@ -2,7 +2,7 @@
 //! Example use of Dropshot.
 
 use dropshot::ApiDescription;
-use dropshot::HttpServerStarter;
+use dropshot::ServerBuilder;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -15,27 +15,21 @@ async fn main() -> Result<(), String> {
     // since it's available and won't expose this server outside the host.  We
     // request port 0, which allows the operating system to pick any available
     // port.
-    let config_dropshot = Default::default();
-
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .compact()
         .init();
 
-    // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(routes::example_api_get_counter).unwrap();
     api.register(routes::example_api_put_counter).unwrap();
 
-    // The functions that implement our API endpoints will share this context.
     let api_context = ExampleContext::new();
 
-    // Set up the server.
-    let server =
-        HttpServerStarter::new(&config_dropshot, api, None, api_context)
-            .map_err(|error| format!("failed to create server: {}", error))?
-            .start();
+    let server = ServerBuilder::new(api, api_context, None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

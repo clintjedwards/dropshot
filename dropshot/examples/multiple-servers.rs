@@ -75,9 +75,9 @@ use dropshot::HttpResponseCreated;
 use dropshot::HttpResponseDeleted;
 use dropshot::HttpResponseOk;
 use dropshot::HttpServer;
-use dropshot::HttpServerStarter;
 use dropshot::Path;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use dropshot::TypedBody;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
@@ -193,8 +193,6 @@ impl SharedMultiServerContext {
             .compact()
             .init();
 
-        // Build a description of the API.
-        //
         // TODO: Could `ApiDescription` implement `Clone`, or could we pass an
         // `Arc<ApiDescription>` instead?
         let mut api = ApiDescription::new();
@@ -211,13 +209,10 @@ impl SharedMultiServerContext {
             shared: Arc::clone(self),
             name: name.to_string(),
         };
-        let server =
-            HttpServerStarter::new(&config_dropshot, api, None, context)
-                .map_err(|error| format!("failed to create server: {}", error))?
-                .start();
-
-        info!(address = server.local_addr().to_string(), "started http server");
-
+        let server = ServerBuilder::new(api, context, None)
+            .config(config_dropshot)
+            .start()
+            .map_err(|error| format!("failed to create server: {}", error))?;
         let shutdown_handle = server.wait_for_shutdown();
 
         slot.insert(server);

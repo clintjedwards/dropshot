@@ -12,12 +12,10 @@
 
 use dropshot::endpoint;
 use dropshot::ApiDescription;
-use dropshot::ConfigDropshot;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
-use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
-use tracing::info;
+use dropshot::ServerBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -27,16 +25,13 @@ async fn main() -> Result<(), String> {
         .compact()
         .init();
 
-    let config_dropshot: ConfigDropshot = Default::default();
     let mut api = ApiDescription::new();
     api.register(example_api_get_header_generic).unwrap();
 
-    let server = HttpServerStarter::new(&config_dropshot, api, None, ())
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
-
-    info!(address = server.local_addr().to_string(), "started http server");
-
+    let api_context = ();
+    let server = ServerBuilder::new(api, api_context, None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
     server.await
 }
 

@@ -3,12 +3,11 @@
 
 use dropshot::endpoint;
 use dropshot::ApiDescription;
-use dropshot::ConfigDropshot;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpResponseUpdatedNoContent;
-use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use dropshot::TypedBody;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -23,8 +22,6 @@ async fn main() -> Result<(), String> {
     // since it's available and won't expose this server outside the host.  We
     // request port 0, which allows the operating system to pick any available
     // port.
-    let config_dropshot: ConfigDropshot = Default::default();
-
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
@@ -40,10 +37,14 @@ async fn main() -> Result<(), String> {
     let api_context = ExampleContext::new();
 
     // Set up the server.
-    let server =
-        HttpServerStarter::new(&config_dropshot, api, None, api_context)
-            .map_err(|error| format!("failed to create server: {}", error))?
-            .start();
+    //
+    // We use the default configuration here, which uses 127.0.0.1 since it's
+    // always available and won't expose this server outside the host.  It also
+    // uses port 0, which allows the operating system to pick any available
+    // port.
+    let server = ServerBuilder::new(api, api_context, None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

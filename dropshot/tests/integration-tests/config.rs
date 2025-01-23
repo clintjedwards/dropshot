@@ -1,19 +1,71 @@
-// Copyright 2023 Oxide Computer Company
+// Copyright 2024 Oxide Computer Company
 
 //! Tests for configuration file.
 
 use dropshot::test_util::read_config;
+use dropshot::Body;
 use dropshot::{
     ConfigDropshot, ConfigTls, HandlerTaskMode, HttpError, HttpResponseOk,
     RequestContext,
 };
-use dropshot::{HttpServer, HttpServerStarter};
+use dropshot::{HttpServer, ServerBuilder};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU16, Ordering};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
 
-pub mod common;
+use crate::common;
+
+#[test]
+fn test_valid_config_empty() {
+    let parsed =
+        read_config::<ConfigDropshot>("valid_config_empty", "").unwrap();
+    assert_eq!(parsed, ConfigDropshot::default());
+}
+
+#[test]
+fn test_valid_config_basic() {
+    // Ensure that a basic config which leaves optional fields unset is
+    // correctly parsed.
+    let parsed = read_config::<ConfigDropshot>(
+        "valid_config_basic",
+        r#"
+        bind_address = "127.0.0.1:12345"
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        parsed,
+        ConfigDropshot {
+            bind_address: "127.0.0.1:12345".parse().unwrap(),
+            ..ConfigDropshot::default()
+        }
+    );
+}
+
+#[test]
+fn test_valid_config_all_settings() {
+    let parsed = read_config::<ConfigDropshot>(
+        "valid_config_basic",
+        r#"
+        bind_address = "127.0.0.1:12345"
+        default_request_body_max_bytes = 1048576
+        default_handler_task_mode = "cancel-on-disconnect"
+        log_headers = ["X-Forwarded-For"]
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        parsed,
+        ConfigDropshot {
+            bind_address: "127.0.0.1:12345".parse().unwrap(),
+            default_request_body_max_bytes: 1048576,
+            default_handler_task_mode: HandlerTaskMode::CancelOnDisconnect,
+        },
+    );
+}
 
 // Bad values for "bind_address"
 
@@ -59,7 +111,7 @@ fn test_config_bad_bind_address_garbage() {
 fn test_config_bad_request_body_max_bytes_negative() {
     let error = read_config::<ConfigDropshot>(
         "bad_request_body_max_bytes_negative",
-        "request_body_max_bytes = -1024",
+        "default_request_body_max_bytes = -1024",
     )
     .unwrap_err()
     .to_string();
@@ -71,7 +123,7 @@ fn test_config_bad_request_body_max_bytes_negative() {
 fn test_config_bad_request_body_max_bytes_too_large() {
     let error = read_config::<ConfigDropshot>(
         "bad_request_body_max_bytes_too_large",
-        "request_body_max_bytes = 999999999999999999999999999999",
+        "default_request_body_max_bytes = 999999999999999999999999999999",
     )
     .unwrap_err()
     .to_string();
@@ -79,19 +131,36 @@ fn test_config_bad_request_body_max_bytes_too_large() {
     assert!(error.starts_with(""));
 }
 
+#[test]
+fn test_config_deprecated_request_body_max_bytes() {
+    let error = read_config::<ConfigDropshot>(
+        "deprecated_request_body_max_bytes",
+        "request_body_max_bytes = 1024",
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.message(),
+        "invalid type: integer `1024`, \
+         expected the field to be absent \
+         (request_body_max_bytes has been renamed to \
+         default_request_body_max_bytes)",
+    );
+}
+
 fn make_server<T: Send + Sync + 'static>(
     context: T,
     config: &ConfigDropshot,
     tls: Option<ConfigTls>,
     api_description: Option<dropshot::ApiDescription<T>>,
-) -> HttpServerStarter<T> {
-    HttpServerStarter::new_with_tls(
-        config,
+) -> HttpServer<T> {
+    ServerBuilder::new(
         api_description.unwrap_or_else(dropshot::ApiDescription::new),
-        None,
         context,
-        tls,
+        None,
     )
+    .config(config.clone())
+    .tls(tls)
+    .start()
     .unwrap()
 }
 
@@ -105,7 +174,7 @@ fn make_config(
             std::net::IpAddr::from_str(bind_ip_str).unwrap(),
             bind_port,
         ),
-        request_body_max_bytes: 1024,
+        default_request_body_max_bytes: 1024,
         default_handler_task_mode,
     }
 }
@@ -114,11 +183,15 @@ fn make_config(
 // test logic
 trait TestConfigBindServer<C>
 where
-    C: hyper::client::connect::Connect + Clone + Send + Sync + 'static,
+    C: hyper_util::client::legacy::connect::Connect
+        + Clone
+        + Send
+        + Sync
+        + 'static,
 {
     type Context: Send + Sync + 'static;
 
-    fn make_client(&self) -> hyper::Client<C>;
+    fn make_client(&self) -> hyper_util::client::legacy::Client<C, Body>;
     fn make_server(&self, bind_port: u16) -> HttpServer<Self::Context>;
     fn make_uri(&self, bind_port: u16) -> hyper::Uri;
 }
@@ -127,7 +200,11 @@ where
 // it binds to ports as expected.
 async fn test_config_bind_server<C, T>(test_config: T, bind_port: u16)
 where
-    C: hyper::client::connect::Connect + Clone + Send + Sync + 'static,
+    C: hyper_util::client::legacy::connect::Connect
+        + Clone
+        + Send
+        + Sync
+        + 'static,
     T: TestConfigBindServer<C>,
 {
     let client = test_config.make_client();
@@ -175,15 +252,22 @@ where
 #[tokio::test]
 async fn test_config_bind_address_http() {
     struct ConfigBindServerHttp {}
-    impl TestConfigBindServer<hyper::client::connect::HttpConnector>
+    impl
+        TestConfigBindServer<hyper_util::client::legacy::connect::HttpConnector>
         for ConfigBindServerHttp
     {
         type Context = i32;
 
         fn make_client(
             &self,
-        ) -> hyper::Client<hyper::client::connect::HttpConnector> {
-            hyper::Client::new()
+        ) -> hyper_util::client::legacy::Client<
+            hyper_util::client::legacy::connect::HttpConnector,
+            Body,
+        > {
+            hyper_util::client::legacy::Client::builder(
+                hyper_util::rt::TokioExecutor::new(),
+            )
+            .build(hyper_util::client::legacy::connect::HttpConnector::new())
         }
 
         fn make_uri(&self, bind_port: u16) -> hyper::Uri {
@@ -195,7 +279,7 @@ async fn test_config_bind_address_http() {
                 bind_port,
                 HandlerTaskMode::CancelOnDisconnect,
             );
-            make_server(0, &config, None, None).start()
+            make_server(0, &config, None, None)
         }
     }
 
@@ -213,17 +297,22 @@ async fn test_config_bind_address_https() {
         key_file: NamedTempFile,
     }
 
-    impl<'a>
+    impl
         TestConfigBindServer<
-            hyper_rustls::HttpsConnector<hyper::client::connect::HttpConnector>,
-        > for ConfigBindServerHttps<'a>
+            hyper_rustls::HttpsConnector<
+                hyper_util::client::legacy::connect::HttpConnector,
+            >,
+        > for ConfigBindServerHttps<'_>
     {
         type Context = i32;
 
         fn make_client(
             &self,
-        ) -> hyper::Client<
-            hyper_rustls::HttpsConnector<hyper::client::connect::HttpConnector>,
+        ) -> hyper_util::client::legacy::Client<
+            hyper_rustls::HttpsConnector<
+                hyper_util::client::legacy::connect::HttpConnector,
+            >,
+            Body,
         > {
             // Configure TLS to trust the self-signed cert
             let mut root_store = rustls::RootCertStore { roots: vec![] };
@@ -239,7 +328,10 @@ async fn test_config_bind_address_https() {
                 .https_only()
                 .enable_http1()
                 .build();
-            hyper::Client::builder().build(https_connector)
+            hyper_util::client::legacy::Client::builder(
+                hyper_util::rt::TokioExecutor::new(),
+            )
+            .build(https_connector)
         }
 
         fn make_uri(&self, bind_port: u16) -> hyper::Uri {
@@ -256,7 +348,7 @@ async fn test_config_bind_address_https() {
                 bind_port,
                 HandlerTaskMode::CancelOnDisconnect,
             );
-            make_server(0, &config, tls, None).start()
+            make_server(0, &config, tls, None)
         }
     }
 
@@ -279,17 +371,22 @@ async fn test_config_bind_address_https_buffer() {
         serialized_key: Vec<u8>,
     }
 
-    impl<'a>
+    impl
         TestConfigBindServer<
-            hyper_rustls::HttpsConnector<hyper::client::connect::HttpConnector>,
-        > for ConfigBindServerHttps<'a>
+            hyper_rustls::HttpsConnector<
+                hyper_util::client::legacy::connect::HttpConnector,
+            >,
+        > for ConfigBindServerHttps<'_>
     {
         type Context = i32;
 
         fn make_client(
             &self,
-        ) -> hyper::Client<
-            hyper_rustls::HttpsConnector<hyper::client::connect::HttpConnector>,
+        ) -> hyper_util::client::legacy::Client<
+            hyper_rustls::HttpsConnector<
+                hyper_util::client::legacy::connect::HttpConnector,
+            >,
+            Body,
         > {
             // Configure TLS to trust the self-signed cert
             let mut root_store = rustls::RootCertStore { roots: vec![] };
@@ -305,7 +402,11 @@ async fn test_config_bind_address_https_buffer() {
                 .https_only()
                 .enable_http1()
                 .build();
-            hyper::Client::builder().build(https_connector)
+
+            hyper_util::client::legacy::Client::builder(
+                hyper_util::rt::TokioExecutor::new(),
+            )
+            .build(https_connector)
         }
 
         fn make_uri(&self, bind_port: u16) -> hyper::Uri {
@@ -322,7 +423,7 @@ async fn test_config_bind_address_https_buffer() {
                 bind_port,
                 HandlerTaskMode::CancelOnDisconnect,
             );
-            make_server(0, &config, tls, None).start()
+            make_server(0, &config, tls, None)
         }
     }
 
@@ -370,15 +471,21 @@ struct ConfigHandlerTaskModeHttp {
     task_mode: HandlerTaskMode,
 }
 
-impl TestConfigBindServer<hyper::client::connect::HttpConnector>
+impl TestConfigBindServer<hyper_util::client::legacy::connect::HttpConnector>
     for ConfigHandlerTaskModeHttp
 {
     type Context = HandlerTaskModeContext;
 
     fn make_client(
         &self,
-    ) -> hyper::Client<hyper::client::connect::HttpConnector> {
-        hyper::Client::new()
+    ) -> hyper_util::client::legacy::Client<
+        hyper_util::client::legacy::connect::HttpConnector,
+        Body,
+    > {
+        hyper_util::client::legacy::Client::builder(
+            hyper_util::rt::TokioExecutor::new(),
+        )
+        .build(hyper_util::client::legacy::connect::HttpConnector::new())
     }
 
     fn make_server(&self, bind_port: u16) -> HttpServer<Self::Context> {
@@ -438,7 +545,7 @@ impl TestConfigBindServer<hyper::client::connect::HttpConnector>
         let mut api = dropshot::ApiDescription::new();
         api.register(track_cancel_endpoint).unwrap();
 
-        let server = make_server(context, &config, None, Some(api)).start();
+        let server = make_server(context, &config, None, Some(api));
 
         self.bound_port.store(server.local_addr().port(), Ordering::SeqCst);
 
@@ -541,4 +648,29 @@ async fn test_config_handler_task_mode_detached() {
     }
 
     server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_unversioned_servers_with_versioned_routes() {
+    #[dropshot::endpoint {
+        method = GET,
+        path = "/handler",
+        versions = "1.0.1".."1.0.1",
+    }]
+    async fn versioned_handler(
+        _rqctx: RequestContext<i32>,
+    ) -> Result<HttpResponseOk<u64>, HttpError> {
+        Ok(HttpResponseOk(3))
+    }
+
+    let mut api = dropshot::ApiDescription::new();
+    api.register(versioned_handler).unwrap();
+    let Err(error) = ServerBuilder::new(api, 0, None).start() else {
+        panic!("expected failure to create server");
+    };
+    println!("{}", error);
+    assert_eq!(
+        error.to_string(),
+        "unversioned servers cannot have endpoints with specific versions"
+    );
 }

@@ -3,10 +3,9 @@
 
 use dropshot::channel;
 use dropshot::ApiDescription;
-use dropshot::ConfigDropshot;
-use dropshot::HttpServerStarter;
 use dropshot::Query;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use dropshot::WebsocketConnection;
 use futures::SinkExt;
 use schemars::JsonSchema;
@@ -23,20 +22,13 @@ async fn main() -> Result<(), String> {
         .compact()
         .init();
 
-    // We must specify a configuration with a bind address.  We'll use 127.0.0.1
-    // since it's available and won't expose this server outside the host.  We
-    // request port 0, which allows the operating system to pick any available
-    // port.
-    let config_dropshot: ConfigDropshot = Default::default();
-
     // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(example_api_websocket_counter).unwrap();
 
-    // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, None, ())
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
+    let server = ServerBuilder::new(api, (), None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

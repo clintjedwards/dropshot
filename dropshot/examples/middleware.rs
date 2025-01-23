@@ -3,19 +3,20 @@
 
 use dropshot::endpoint;
 use dropshot::ApiDescription;
+use dropshot::Body;
 use dropshot::ConfigDropshot;
 use dropshot::DropshotState;
+use dropshot::HandlerError;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpResponseUpdatedNoContent;
-use dropshot::HttpServerStarter;
 use dropshot::Middleware;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use dropshot::ServerContext;
 use dropshot::TypedBody;
 use futures::Future;
 use http::Request;
-use hyper::Body;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -49,14 +50,14 @@ async fn main() -> Result<(), String> {
     let api_context = ExampleContext::new();
 
     // Set up the server.
-    let server = HttpServerStarter::new(
-        &config_dropshot,
+    let server = ServerBuilder::new(
         api,
-        Some(Arc::new(RequestTimeMiddleware)),
         api_context,
+        Some(Arc::new(RequestTimeMiddleware)),
     )
-    .map_err(|error| format!("failed to create server: {}", error))?
-    .start();
+    .config(config_dropshot)
+    .start()
+    .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 
@@ -135,21 +136,21 @@ impl<C: ServerContext> Middleware<C> for RequestTimeMiddleware {
     async fn handle(
         &self,
         server: Arc<DropshotState<C>>,
-        request: Request<Body>,
+        request: Request<hyper::body::Incoming>,
         request_id: String,
         remote_addr: SocketAddr,
         next: fn(
             Arc<DropshotState<C>>,
-            Request<Body>,
+            Request<hyper::body::Incoming>,
             String,
             SocketAddr,
         ) -> Pin<
             Box<
-                dyn Future<Output = Result<hyper::Response<Body>, HttpError>>
+                dyn Future<Output = Result<hyper::Response<Body>, HandlerError>>
                     + Send,
             >,
         >,
-    ) -> Result<http::Response<Body>, HttpError> {
+    ) -> Result<http::Response<Body>, HandlerError> {
         let start_time = std::time::Instant::now();
 
         let response =

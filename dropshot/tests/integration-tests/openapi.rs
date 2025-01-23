@@ -1,7 +1,7 @@
 // Copyright 2023 Oxide Computer Company
 
 use dropshot::{
-    endpoint, http_response_found, http_response_see_other,
+    channel, endpoint, http_response_found, http_response_see_other,
     http_response_temporary_redirect, ApiDescription,
     ApiDescriptionRegisterError, FreeformBody, HttpError, HttpResponseAccepted,
     HttpResponseCreated, HttpResponseDeleted, HttpResponseFound,
@@ -10,7 +10,7 @@ use dropshot::{
     PaginationParams, Path, Query, RequestContext, ResultsPage, TagConfig,
     TagDetails, TypedBody, UntypedBody,
 };
-use hyper::Body;
+use dropshot::{Body, WebsocketConnection};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::Cursor, str::from_utf8};
@@ -362,7 +362,7 @@ async fn handler17(
 async fn handler18(
     _rqctx: RequestContext<()>,
 ) -> Result<HttpResponseOk<FreeformBody>, HttpError> {
-    let (_, body) = Body::channel();
+    let body = Body::empty();
     Ok(HttpResponseOk(body.into()))
 }
 
@@ -473,6 +473,33 @@ async fn handler25(
     Ok(HttpResponseCreated(Response {}))
 }
 
+// test: Overridden operation id
+#[endpoint {
+    operation_id = "vzeroupper",
+    method = GET,
+    path = "/first_thing",
+    tags = ["it"]
+}]
+async fn handler26(
+    _rqctx: RequestContext<()>,
+) -> Result<HttpResponseCreated<Response>, HttpError> {
+    Ok(HttpResponseCreated(Response {}))
+}
+
+// test: websocket using overriden operation id
+#[channel {
+    protocol = WEBSOCKETS,
+    operation_id = "vzerolower",
+    path = "/other_thing",
+    tags = ["it"]
+}]
+async fn handler27(
+    _rqctx: RequestContext<()>,
+    _: WebsocketConnection,
+) -> dropshot::WebsocketChannelResult {
+    Ok(())
+}
+
 fn make_api(
     maybe_tag_config: Option<TagConfig>,
 ) -> Result<ApiDescription<()>, ApiDescriptionRegisterError> {
@@ -507,6 +534,8 @@ fn make_api(
     api.register(handler23)?;
     api.register(handler24)?;
     api.register(handler25)?;
+    api.register(handler26)?;
+    api.register(handler27)?;
     Ok(api)
 }
 
@@ -515,7 +544,8 @@ fn test_openapi() -> anyhow::Result<()> {
     let api = make_api(None)?;
     let mut output = Cursor::new(Vec::new());
 
-    let _ = api.openapi("test", "threeve").write(&mut output);
+    let _ =
+        api.openapi("test", semver::Version::new(3, 5, 0)).write(&mut output);
     let actual = from_utf8(output.get_ref()).unwrap();
 
     expectorate::assert_contents("tests/test_openapi.json", actual);
@@ -541,7 +571,7 @@ fn test_openapi_fuller() -> anyhow::Result<()> {
     let mut output = Cursor::new(Vec::new());
 
     let _ = api
-        .openapi("test", "1985.7")
+        .openapi("test", semver::Version::new(1985, 7, 0))
         .description("gusty winds may exist")
         .contact_name("old mate")
         .license_name("CDDL")
@@ -550,5 +580,39 @@ fn test_openapi_fuller() -> anyhow::Result<()> {
     let actual = from_utf8(output.get_ref()).unwrap();
 
     expectorate::assert_contents("tests/test_openapi_fuller.json", actual);
+    Ok(())
+}
+
+#[test]
+fn test_openapi_custom_error_types() -> anyhow::Result<()> {
+    let api = super::custom_errors::api();
+    let mut output = Cursor::new(Vec::new());
+
+    let _ =
+        api.openapi("test", semver::Version::new(3, 5, 0)).write(&mut output);
+    let actual = from_utf8(output.get_ref()).unwrap();
+
+    expectorate::assert_contents(
+        "tests/test_openapi_custom_error_types.json",
+        actual,
+    );
+    Ok(())
+}
+
+#[test]
+fn test_openapi_custom_error_types_trait_based() -> anyhow::Result<()> {
+    let api =
+        super::custom_errors::custom_error_api_mod::stub_api_description()
+            .unwrap();
+    let mut output = Cursor::new(Vec::new());
+
+    let _ =
+        api.openapi("test", semver::Version::new(3, 5, 0)).write(&mut output);
+    let actual = from_utf8(output.get_ref()).unwrap();
+
+    expectorate::assert_contents(
+        "tests/test_openapi_custom_error_types_trait_based.json",
+        actual,
+    );
     Ok(())
 }

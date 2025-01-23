@@ -365,8 +365,27 @@ impl<'ast> ApiParser<'ast> {
         let mut supertraits = item_trait.supertraits.clone();
         supertraits.push(parse_quote!('static));
 
+        // Also add dead_code if the visibility is not `pub`. (If it is `pub`,
+        // then it is expected to be exported, and so the dead code warning
+        // won't fire.)
+        //
+        // Why check for non-`pub` visibility? Because there is a downside to
+        // allow(dead_code): it also applies to any items defined within the
+        // trait. For example, if a provided method on the trait defines an
+        // unused function inside of it, then allow(dead_code) would suppress
+        // that.
+        //
+        // It would be ideal if there were a way to say "allow(dead_code), but
+        // don't propagate this to child items", but sadly there isn't as of
+        // Rust 1.81.
+        let mut attrs = item_trait.attrs.clone();
+        if !matches!(item_trait.vis, syn::Visibility::Public(_)) {
+            attrs.push(parse_quote!(#[allow(dead_code)]));
+        }
+
         // Everything else about the trait stays the same -- just the items change.
         let out_trait = ItemTraitPartParsed {
+            attrs,
             supertraits,
             items: out_items.collect(),
             ..item_trait.clone()
@@ -650,7 +669,7 @@ struct SupportModuleGenerator<'ast> {
     tag_config: Option<&'ast ApiTagConfig>,
 }
 
-impl<'ast> SupportModuleGenerator<'ast> {
+impl SupportModuleGenerator<'_> {
     fn make_api_description(&self, doc: TokenStream) -> TokenStream {
         let dropshot = &self.dropshot;
         let trait_ident = &self.item_trait.ident;
@@ -830,7 +849,7 @@ impl<'ast> SupportModuleGenerator<'ast> {
     }
 }
 
-impl<'ast> ToTokens for SupportModuleGenerator<'ast> {
+impl ToTokens for SupportModuleGenerator<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let vis = &self.item_trait.vis;
         let module_ident = self.module_ident;
@@ -955,17 +974,13 @@ async fn main() {{
     let context = /* some value of type `{trait_ident}Impl::{context_ident}` */;
 
     // Create a Dropshot server from the description.
-    let config = dropshot::ConfigDropshot::default();
     let log = /* ... */;
-    let server = dropshot::HttpServerStarter::new(
-        &config,
-        description,
-        context,
-        &log,
-    ).unwrap();
+    let server = dropshot::ServerBuilder::new(description, context, log)
+        .start()
+        .unwrap();
 
     // Run the server.
-    server.start().await
+    server.await
 }}
 ```
 
@@ -1661,12 +1676,20 @@ mod tests {
                 trait MyTrait {
                     type Context;
 
-                    #[endpoint { method = GET, path = "/xyz" }]
+                    #[endpoint {
+                        method = GET,
+                        path = "/xyz",
+                        versions = "1.2.3"..
+                    }]
                     async fn handler_xyz(
                         rqctx: RequestContext<Self::Context>,
                     ) -> Result<HttpResponseOk<()>, HttpError>;
 
-                    #[channel { protocol = WEBSOCKETS, path = "/ws" }]
+                    #[channel {
+                        protocol = WEBSOCKETS,
+                        path = "/ws",
+                        versions = ..
+                    }]
                     async fn handler_ws(
                         rqctx: RequestContext<Self::Context>,
                         upgraded: WebsocketConnection,
@@ -1760,6 +1783,43 @@ mod tests {
         assert!(errors.is_empty());
         assert_contents(
             "tests/output/api_trait_no_endpoints.rs",
+            &prettyplease::unparse(&parse_quote! { #item }),
+        );
+    }
+
+    #[test]
+    fn test_api_trait_operation_id() {
+        let (item, errors) = do_trait(
+            quote! {},
+            quote! {
+                pub trait MyTrait {
+                    type Context;
+
+                    #[endpoint {
+                        operation_id = "vzerolower",
+                        method = GET,
+                        path = "/xyz"
+                    }]
+                    async fn handler_xyz(
+                        rqctx: RequestContext<Self::Context>,
+                    ) -> Result<HttpResponseOk<()>, HttpError>;
+
+                    #[channel {
+                        protocol = WEBSOCKETS,
+                        path = "/ws",
+                        operation_id = "vzeroupper",
+                    }]
+                    async fn handler_ws(
+                        rqctx: RequestContext<Self::Context>,
+                        upgraded: WebsocketConnection,
+                    ) -> WebsocketChannelResult;
+                }
+            },
+        );
+
+        assert!(errors.is_empty());
+        assert_contents(
+            "tests/output/api_trait_operation_id.rs",
             &prettyplease::unparse(&parse_quote! { #item }),
         );
     }

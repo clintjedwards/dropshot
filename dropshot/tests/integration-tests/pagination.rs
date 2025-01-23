@@ -10,6 +10,7 @@ use dropshot::test_util::object_get;
 use dropshot::test_util::objects_list_page;
 use dropshot::test_util::ClientTestContext;
 use dropshot::ApiDescription;
+use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
@@ -21,8 +22,6 @@ use dropshot::ResultsPage;
 use dropshot::WhichPage;
 use http::Method;
 use http::StatusCode;
-use hyper::Body;
-use hyper::Client;
 use hyper::Request;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -44,10 +43,7 @@ use subprocess::Popen;
 use tracing::{info, trace};
 use uuid::Uuid;
 
-#[macro_use]
-extern crate lazy_static;
-
-pub mod common;
+use crate::common;
 
 // Common helpers
 
@@ -567,7 +563,7 @@ lazy_static! {
 }
 
 fn make_word_list() -> BTreeSet<String> {
-    let word_list = include_str!("wordlist.txt");
+    let word_list = include_str!("../wordlist.txt");
     word_list.lines().map(|s| s.to_string()).collect()
 }
 
@@ -808,7 +804,10 @@ async fn start_example(path: &str, port: u16) -> ExampleContext {
     let server_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let client = ClientTestContext::new(server_addr);
     let url = client.url("/");
-    let raw_client = Client::new();
+    let raw_client = hyper_util::client::legacy::Client::builder(
+        hyper_util::rt::TokioExecutor::new(),
+    )
+    .build(hyper_util::client::legacy::connect::HttpConnector::new());
     let rv = ExampleContext { child, client };
 
     while start.elapsed().as_secs() < 10 {

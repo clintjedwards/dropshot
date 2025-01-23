@@ -7,7 +7,7 @@
 
 use dropshot::{
     endpoint, ApiDescription, EndpointTagPolicy, HttpError, HttpResponseOk,
-    HttpServerStarter, RequestContext, TagConfig, TagDetails, TagExternalDocs,
+    RequestContext, ServerBuilder, TagConfig, TagDetails, TagExternalDocs,
 };
 use tracing::info;
 
@@ -52,12 +52,6 @@ async fn main() -> Result<(), String> {
         .compact()
         .init();
 
-    // We must specify a configuration with a bind address.  We'll use 127.0.0.1
-    // since it's available and won't expose this server outside the host.  We
-    // request port 0, which allows the operating system to pick any available
-    // port.
-    let config_dropshot = Default::default();
-
     // Build a description of the API -- in this case it's not much of an API!.
     let mut api = ApiDescription::new().tag_config(TagConfig {
         allow_other_tags: false,
@@ -96,10 +90,9 @@ async fn main() -> Result<(), String> {
     api.register(get_barneyism).unwrap();
     api.register(get_fryism).unwrap();
 
-    // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, None, ())
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
+    let server = ServerBuilder::new(api, (), None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

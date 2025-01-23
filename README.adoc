@@ -81,6 +81,115 @@ https://github.com/rust-lang/rust-clippy[Clippy] is used to check for common cod
 
 For maintainers (e.g., publishing new releases and managing dependabot), see link:./MAINTAINERS.adoc[MAINTAINERS.adoc].
 
+== Configuration reference
+
+=== Dropshot servers
+
+Dropshot servers use a TOML configuration file.  Supported config properties
+include:
+
+[cols="1,1,1,3",options="header"]
+|===
+|Name
+|Example
+|Required?
+|Description
+
+|`bind_address`
+|`"127.0.0.1:12220"`
+|No
+|Specifies that the server should bind to the given IP address and TCP port.  In general, servers can bind to more than one IP address and port, but this is not (yet?) supported. Defaults to "127.0.0.1:0".
+
+|`default_request_body_max_bytes`
+|`4096`
+|No
+|Specifies the maximum number of bytes allowed in a request body. Larger requests will receive a 400 error. Defaults to 1024.
+
+Can be overridden per-endpoint via the `request_body_max_bytes` parameter to `#[endpoint { ... }]`.
+
+|`tls.type`
+|`"AsFile"`
+|No
+|Specifies if and how TLS certificate and key information is provided.  Valid values include "AsFile" and "AsBytes".
+
+|`tls.cert_file`
+|`"/path/to/cert.pem"`
+|Only if `tls.type = AsFile`
+|Specifies the path to a PEM file containing a certificate chain for the server to identify itself with. The first certificate is the end-entity certificate, and the remaining are intermediate certificates on the way to a trusted CA. If specified, the server will only listen for TLS connections.
+
+|`tls.key_file`
+|`"/path/to/key.pem"`
+|Only if `tls.type = AsFile`
+|Specifies the path to a PEM-encoded PKCS #8 file containing the private key the server will use. If specified, the server will only listen for TLS connections.
+
+|`tls.certs`
+|`Vec<u8> of certificate data`
+|Only if `tls.type = AsBytes`
+|Identical to `tls.cert_file`, but provided as a buffer.
+
+|`tls.key`
+|`Vec<u8> of key data`
+|Only if `tls.type = AsBytes`
+|Identical to `tls.key_file`, but provided as a buffer.
+|===
+
+=== Logging
+
+Dropshot provides a small wrapper to configure a slog-based Logger.  You can use
+this without using the rest of Dropshot.  Logging config properties include:
+
+[cols="1,1,1,3",options="header"]
+|===
+|Name
+|Example
+|Required?
+|Description
+
+|`mode`
+|`"file"`
+|Yes
+|Controls where server logging will go.  Valid modes are `"stderr-terminal"` and
+`"file".  If the mode is `"stderr-terminal"`, human-readable output, with colors
+and other terminal formatting if possible, will be sent to stderr.  If the mode
+is `"file"`, Bunyan-format output will be sent to the filesystem path given by
+`log.path`.  See also `log.if_exists`, which controls the behavior if the
+destination path already exists.
+
+|`level`
+|`"info"`
+|Yes
+|Specifies what severity of log messages should be included in the log.  Valid
+values include `"trace"`, `"debug"`, `"info"`, `"warn"`, `"error"`, and
+`"critical"`, which are increasing order of severity.  Log messages at the
+specified level and more severe levels will be included in the log.
+
+|`path`
+|`"logs/server.log"`
+|Only if `log.mode = "file"`
+|If `log.mode` is `"file"`, this property determines the path to the log file.
+See also `log.if_exists`.
+
+|`if_exists`
+|`"append"`
+|Only if `log.mode = "file"`
+|If `log.mode` is `"file"`, this property specifies what to do if the
+destination log file already exists.  Valid values include `"append"` (which
+appends to the existing file), `"truncate"` (which truncates the existing file
+and then uses it as though it had just been created), and `"fail"` (which causes
+the server to exit immediately with an error).
+
+|===
+
+== Design notes
+
+=== Why is there no way to add an API handler function that runs on every request?
+
+In designing Dropshot, we've tried to avoid a few problems we found with frameworks we used in the past.  Many (most?) web frameworks, whether in Rust or another language, let you specify a chain of handlers for each route.  You can usually specify some handlers that run before or after every request, regardless of the route.  We found that after years of evolving a complex API server using this approach, it can get quite hard to follow the control flow for a particular request and to understand the implicit dependencies between different handlers within the chain.  This made it time-consuming and error-prone to work on these API servers.  (For more details, see https://github.com/oxidecomputer/dropshot/issues/58#issuecomment-713175039[the discussion in issue 58].)
+
+With Dropshot, we wanted to try something different: if the primary purpose of these handlers is to share code between handlers, what if we rely instead on existing mechanisms -- i.e., function calls.  The big risk is that it's easy for someone to accidentally forget some important function call, like the one that authenticates or authorizes a user.  We haven't gotten far enough in a complex implementation to need this yet, but the plan is to create a pattern of utility functions that return typed values.  For example, where in Node.js you might add an early authentication handler that fills in `request.auth`, with Dropshot you'd have an authentication function that _returns_ an `AuthzContext` struct.  Then anything that needs authentication consumes the `AuthzContext` as a function argument.  As an author of a handler, you know if you've got an `AuthzContext` available and, if not, how to get one (call the utility function).  This composes, too: you can have an authorization function that returns an `AuthnContext`, and the utility function that returns one can consume the `AuthzContext`.  Then anything that requires authorization can consume just the `AuthnContext`, and you know it's been authenticated and authorized (possibly with details in that structure).
+
+It's early, and we may find we need richer facilities in the framework.  But we're hopeful this approach will make it faster and smoother to iterate on complex API servers.  If you pick up Dropshot and try this out, let us know how it goes!
+
 == Examples
 
 To run the examples in dropshot/examples, clone the repository and run `cargo run --example [example_name]`, e.g. `cargo run --example basic`. (Do not include the file extension.)

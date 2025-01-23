@@ -15,7 +15,7 @@
 //!
 //! This example puts the interface and implementation in separate modules.
 
-use dropshot::HttpServerStarter;
+use dropshot::ServerBuilder;
 
 /// The interface.
 mod api {
@@ -54,14 +54,15 @@ mod api {
         pub(crate) counter: u64,
     }
 
-    // A simple function to generate an OpenAPI spec for the trait, without having
-    // a real implementation available.
+    // A simple function to generate an OpenAPI spec for the trait, without
+    // having a real implementation available.
     //
-    // If the interface and implementation (see below) are in different crates, then
-    // this function would live in the interface crate.
+    // If the interface and implementation (see below) are in different crates,
+    // then this function would live in the interface crate.
     pub(crate) fn generate_openapi_spec() -> String {
         let description = counter_api_mod::stub_api_description().unwrap();
-        let spec = description.openapi("Counter Server", "1.0.0");
+        let spec = description
+            .openapi("Counter Server", semver::Version::new(1, 0, 0));
         serde_json::to_string_pretty(&spec.json().unwrap()).unwrap()
     }
 }
@@ -134,8 +135,6 @@ mod imp {
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    let config_dropshot = Default::default();
-
     // Print the OpenAPI spec to stdout as an example.
     println!("OpenAPI spec:");
     println!("{}", api::generate_openapi_spec());
@@ -144,14 +143,9 @@ async fn main() -> Result<(), String> {
     // type parameter.
     let my_api =
         api::counter_api_mod::api_description::<imp::CounterImpl>().unwrap();
-    let server = HttpServerStarter::new(
-        &config_dropshot,
-        my_api,
-        None,
-        imp::AtomicCounter::new(),
-    )
-    .map_err(|error| format!("failed to create server: {}", error))?
-    .start();
+    let server = ServerBuilder::new(my_api, imp::AtomicCounter::new(), None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     server.await
 }

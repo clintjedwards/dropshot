@@ -3,12 +3,12 @@
 //! Example using Dropshot to serve files
 
 use dropshot::ApiDescription;
+use dropshot::Body;
 use dropshot::HttpError;
-use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use dropshot::{endpoint, Path};
 use http::{Response, StatusCode};
-use hyper::Body;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -25,25 +25,20 @@ async fn main() -> Result<(), String> {
     // since it's available and won't expose this server outside the host.  We
     // request port 0, which allows the operating system to pick any available
     // port.
-    let config_dropshot = Default::default();
-
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .compact()
         .init();
 
-    // Build a description of the API -- in this case it's not much of an API!.
     let mut api = ApiDescription::new();
     api.register(static_content).unwrap();
 
-    // Specify the directory we want to serve.
     let context = FileServerContext { base: PathBuf::from(".") };
 
-    // Set up the server.
-    let server = HttpServerStarter::new(&config_dropshot, api, None, context)
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
+    let server = ServerBuilder::new(api, context, None)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 
@@ -132,7 +127,11 @@ async fn static_content(
                 format!("failed to read file {:?}: {:#}", entry, e),
             )
         })?;
-        let file_stream = hyper_staticfile::FileBytesStream::new(file);
+
+        let file_access = hyper_staticfile::vfs::TokioFileAccess::new(file);
+        let file_stream =
+            hyper_staticfile::util::FileBytesStream::new(file_access);
+        let body = Body::wrap(hyper_staticfile::Body::Full(file_stream));
 
         // Derive the MIME type from the file name
         let content_type = mime_guess::from_path(&entry)
@@ -142,7 +141,7 @@ async fn static_content(
         Ok(Response::builder()
             .status(StatusCode::OK)
             .header(http::header::CONTENT_TYPE, content_type)
-            .body(file_stream.into_body())?)
+            .body(body)?)
     }
 }
 

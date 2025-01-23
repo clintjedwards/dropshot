@@ -7,7 +7,7 @@ error: endpoint handlers must have the following signature:
                [body_param: UntypedBody,]
                [body_param: StreamingBody,]
                [raw_request: RawRequest,]
-           ) -> Result<HttpResponse*, HttpError>
+           ) -> Result<HttpResponse*, impl HttpResponseError>
   --> tests/fail/bad_trait_endpoint21.rs:22:7
    |
 22 | trait MyApi {
@@ -19,13 +19,13 @@ error: endpoint `variadic_argument` must not have a variadic argument
 33 |         ...
    |         ^^^
 
-error: only foreign or `unsafe extern "C"` functions may be C-variadic
+error: only foreign, `unsafe extern "C"`, or `unsafe extern "C-unwind"` functions may have a C-variadic arg
   --> tests/fail/bad_trait_endpoint21.rs:33:9
    |
 33 |         ...
    |         ^^^
 
-error: only foreign or `unsafe extern "C"` functions may be C-variadic
+error: only foreign, `unsafe extern "C"`, or `unsafe extern "C-unwind"` functions may have a C-variadic arg
   --> tests/fail/bad_trait_endpoint21.rs:46:9
    |
 46 |         ...

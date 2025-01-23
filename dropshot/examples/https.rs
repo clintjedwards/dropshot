@@ -4,13 +4,12 @@
 
 use dropshot::endpoint;
 use dropshot::ApiDescription;
-use dropshot::ConfigDropshot;
 use dropshot::ConfigTls;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::HttpResponseUpdatedNoContent;
-use dropshot::HttpServerStarter;
 use dropshot::RequestContext;
+use dropshot::ServerBuilder;
 use dropshot::TypedBody;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -51,17 +50,9 @@ fn generate_keys() -> Result<(NamedTempFile, NamedTempFile), String> {
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Begin by generating TLS certificates and keys. A normal application would
-    // just pass the paths to these via ConfigDropshot.
+    // Begin by generating TLS certificates and keys and stuffing them into a
+    // TLS configuration.
     let (cert_file, key_file) = generate_keys()?;
-
-    // We must specify a configuration with a bind address.  We'll use 127.0.0.1
-    // since it's available and won't expose this server outside the host.  We
-    // request port 0, which allows the operating system to pick any available
-    // port.
-    //
-    // In addition, we'll make this an HTTPS server.
-    let config_dropshot = ConfigDropshot::default();
     let config_tls = Some(ConfigTls::AsFile {
         cert_file: cert_file.path().to_path_buf(),
         key_file: key_file.path().to_path_buf(),
@@ -73,24 +64,17 @@ async fn main() -> Result<(), String> {
         .compact()
         .init();
 
-    // Build a description of the API.
     let mut api = ApiDescription::new();
     api.register(example_api_get_counter).unwrap();
     api.register(example_api_put_counter).unwrap();
 
-    // The functions that implement our API endpoints will share this context.
     let api_context = ExampleContext::new();
 
-    // Set up the server.
-    let server = HttpServerStarter::new_with_tls(
-        &config_dropshot,
-        api,
-        None,
-        api_context,
-        config_tls,
-    )
-    .map_err(|error| format!("failed to create server: {}", error))?
-    .start();
+    let server = ServerBuilder::new(api, api_context, None)
+        // This differs from the basic example: provide the TLS configuration.
+        .tls(config_tls)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

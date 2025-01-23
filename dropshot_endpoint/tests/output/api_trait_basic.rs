@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 trait MyTrait: 'static {
     type Context: dropshot::ServerContext;
     fn handler_xyz(
@@ -72,6 +73,9 @@ mod my_trait_mod {
                 dropshot::Method::GET,
                 "application/json",
                 "/xyz",
+                dropshot::ApiEndpointVersions::From(
+                    semver::Version::new(1u64, 2u64, 3u64),
+                ),
             );
             if let Err(error) = dropshot_api.register(endpoint_handler_xyz) {
                 dropshot_errors.push(error);
@@ -86,6 +90,7 @@ mod my_trait_mod {
                 dropshot::Method::GET,
                 "application/json",
                 "/ws",
+                dropshot::ApiEndpointVersions::All,
             );
             if let Err(error) = dropshot_api.register(endpoint_handler_ws) {
                 dropshot_errors.push(error);
@@ -128,17 +133,13 @@ mod my_trait_mod {
     ///     let context = /* some value of type `MyTraitImpl::Context` */;
     ///
     ///     // Create a Dropshot server from the description.
-    ///     let config = dropshot::ConfigDropshot::default();
     ///     let log = /* ... */;
-    ///     let server = dropshot::HttpServerStarter::new(
-    ///         &config,
-    ///         description,
-    ///         context,
-    ///         &log,
-    ///     ).unwrap();
+    ///     let server = dropshot::ServerBuilder::new(description, context, log)
+    ///         .start()
+    ///         .unwrap();
     ///
     ///     // Run the server.
-    ///     server.start().await
+    ///     server.await
     /// }
     /// ```
     ///
@@ -159,6 +160,9 @@ mod my_trait_mod {
                 dropshot::Method::GET,
                 "application/json",
                 "/xyz",
+                dropshot::ApiEndpointVersions::From(
+                    semver::Version::new(1u64, 2u64, 3u64),
+                ),
             );
             if let Err(error) = dropshot_api.register(endpoint_handler_xyz) {
                 dropshot_errors.push(error);
@@ -182,6 +186,7 @@ mod my_trait_mod {
                     dropshot::Method::GET,
                     "application/json",
                     "/ws",
+                    dropshot::ApiEndpointVersions::All,
                 );
                 if let Err(error) = dropshot_api.register(endpoint_handler_ws) {
                     dropshot_errors.push(error);

@@ -7,6 +7,7 @@
 //! which will be spawned to handle the incoming connection.
 
 use crate::api_description::ExtensionMode;
+use crate::body::Body;
 use crate::{
     ApiEndpointBodyContentType, ExclusiveExtractor, ExtractorMetadata,
     HttpError, RequestContext, ServerContext,
@@ -17,12 +18,14 @@ use http::header;
 use http::Response;
 use http::StatusCode;
 use hyper::upgrade::OnUpgrade;
-use hyper::Body;
 use schemars::JsonSchema;
 use serde_json::json;
 use sha1::{Digest, Sha1};
 use std::future::Future;
-use tracing::debug;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
+use tracing::{debug, trace};
 
 /// WebsocketUpgrade is an ExclusiveExtractor used to upgrade and handle an HTTP
 /// request as a websocket when present in a Dropshot endpoint's function
@@ -51,7 +54,10 @@ pub type WebsocketEndpointResult = Result<Response<Body>, HttpError>;
 pub struct WebsocketConnection(WebsocketConnectionRaw);
 
 /// A type that implements [tokio::io::AsyncRead] + [tokio::io::AsyncWrite].
-pub type WebsocketConnectionRaw = hyper::upgrade::Upgraded;
+// A newtype so as to not expose the less-stable hyper-util type.
+pub struct WebsocketConnectionRaw(
+    hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>,
+);
 
 impl WebsocketConnection {
     /// Consumes `self` and returns the held raw connection.
@@ -86,7 +92,7 @@ fn derive_accept_key(request_key: &[u8]) -> String {
 impl ExclusiveExtractor for WebsocketUpgrade {
     async fn from_request<Context: ServerContext>(
         _rqctx: &RequestContext<Context>,
-        request: hyper::Request<hyper::Body>,
+        request: hyper::Request<Body>,
     ) -> Result<Self, HttpError> {
         if !request
             .headers()
@@ -211,9 +217,23 @@ impl WebsocketUpgrade {
                 tokio::spawn(async move {
                     match upgrade_fut.await {
                         Ok(upgrade) => {
-                            handler(WebsocketConnection(upgrade)).await
+                            let io = hyper_util::rt::TokioIo::new(upgrade);
+                            let raw = WebsocketConnectionRaw(io);
+                            match handler(WebsocketConnection(raw)).await {
+                                Ok(x) => Ok(x),
+                                Err(e) => {
+                                    trace!(
+                                        "Error returned from handler: {:?}",
+                                        e
+                                    );
+                                    Err(e)
+                                }
+                            }
                         }
-                        Err(e) => Err(e.into()),
+                        Err(e) => {
+                            trace!("Error upgrading connection: {:?}", e);
+                            Err(e.into())
+                        }
                     }
                 });
                 Response::builder()
@@ -256,18 +276,64 @@ impl JsonSchema for WebsocketUpgrade {
     }
 }
 
+impl tokio::io::AsyncRead for WebsocketConnectionRaw {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for WebsocketConnectionRaw {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.0.is_write_vectored()
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write_vectored(cx, bufs)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::body::Body;
     use crate::config::HandlerTaskMode;
     use crate::router::HttpRouter;
     use crate::server::{DropshotState, ServerConfig};
     use crate::{
-        ExclusiveExtractor, HttpError, RequestContext, RequestInfo,
-        WebsocketUpgrade,
+        ExclusiveExtractor, HttpError, RequestContext, RequestEndpointMetadata,
+        RequestInfo, VersionPolicy, WebsocketUpgrade,
     };
     use debug_ignore::DebugIgnore;
     use http::Request;
-    use hyper::Body;
     use std::net::{IpAddr, Ipv6Addr, SocketAddr};
     use std::num::NonZeroU32;
     use std::sync::Arc;
@@ -288,7 +354,7 @@ mod tests {
             server: Arc::new(DropshotState {
                 private: (),
                 config: ServerConfig {
-                    request_body_max_bytes: 0,
+                    default_request_body_max_bytes: 0,
                     page_max_nitems: NonZeroU32::new(1).unwrap(),
                     page_default_nitems: NonZeroU32::new(1).unwrap(),
                     default_handler_task_mode:
@@ -304,11 +370,15 @@ mod tests {
                 handler_waitgroup_worker: DebugIgnore(
                     WaitGroup::new().worker(),
                 ),
+                version_policy: VersionPolicy::Unversioned,
             }),
             request: RequestInfo::new(&request, remote_addr),
-            path_variables: Default::default(),
-            body_content_type: Default::default(),
-            operation_id: "".to_string(),
+            endpoint: RequestEndpointMetadata {
+                operation_id: "".to_string(),
+                variables: Default::default(),
+                body_content_type: Default::default(),
+                request_body_max_bytes: None,
+            },
             request_id: "".to_string(),
         };
         let fut = WebsocketUpgrade::from_request(&rqctx, request);

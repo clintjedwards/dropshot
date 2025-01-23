@@ -8,7 +8,6 @@ use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
-use dropshot::HttpServerStarter;
 use dropshot::PaginationOrder;
 use dropshot::PaginationOrder::Ascending;
 use dropshot::PaginationOrder::Descending;
@@ -16,6 +15,7 @@ use dropshot::PaginationParams;
 use dropshot::Query;
 use dropshot::RequestContext;
 use dropshot::ResultsPage;
+use dropshot::ServerBuilder;
 use dropshot::WhichPage;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -282,6 +282,7 @@ async fn main() -> Result<(), String> {
         .unwrap_or(0);
 
     // Run the Dropshot server.
+    // See dropshot/examples/basic.rs for more details on most of these pieces.
     let ctx = DataCollection::new();
     let config_dropshot = ConfigDropshot {
         bind_address: SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
@@ -291,9 +292,10 @@ async fn main() -> Result<(), String> {
     api.register(example_list_projects).unwrap();
     api.register(example_list_disks).unwrap();
     api.register(example_list_instances).unwrap();
-    let server = HttpServerStarter::new(&config_dropshot, api, None, ctx)
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
+    let server = ServerBuilder::new(api, ctx, None)
+        .config(config_dropshot)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
 
     info!(address = server.local_addr().to_string(), "started http server");
 

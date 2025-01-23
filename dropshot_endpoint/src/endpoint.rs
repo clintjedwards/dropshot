@@ -35,7 +35,7 @@ pub(crate) fn usage_str(context: &str) -> String {
         [body_param: UntypedBody,]
         [body_param: StreamingBody,]
         [raw_request: RawRequest,]
-    ) -> Result<HttpResponse*, HttpError>"
+    ) -> Result<HttpResponse*, impl HttpResponseError>"
     )
 }
 
@@ -389,29 +389,20 @@ impl<'ast> EndpointParams<'ast> {
                     type E;
                 }
                 impl<TT, EE> ResultTrait for Result<TT, EE>
-                where
-                    TT: #dropshot::HttpResponse,
                 {
                     type T = TT;
                     type E = EE;
                 }
-                struct NeedHttpResponse(
-                    <#ret_ty as ResultTrait>::T,
-                );
-                trait TypeEq {
-                    type This: ?Sized;
-                }
-                impl<T: ?Sized> TypeEq for T {
-                    type This = Self;
-                }
-                fn validate_result_error_type<T>()
+                fn validate_response_type<T>()
                 where
-                    T: ?Sized + TypeEq<This = #dropshot::HttpError>,
-                {
-                }
-                validate_result_error_type::<
-                    <#ret_ty as ResultTrait>::E,
-                >();
+                    T: #dropshot::HttpResponse,
+                {}
+                fn validate_error_type<T>()
+                where
+                    T: #dropshot::HttpResponseError,
+                {}
+                validate_response_type::<<#ret_ty as ResultTrait>::T>();
+                validate_error_type::<<#ret_ty as ResultTrait>::E>();
             };
         };
 
@@ -803,6 +794,102 @@ mod tests {
     }
 
     #[test]
+    fn test_endpoint_with_versions_all() {
+        let (item, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/test",
+                versions = ..
+            },
+            quote! {
+                async fn handler_xyz(
+                    _: RequestContext<()>,
+                ) -> Result<HttpResponseUpdatedNoContent, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(errors.is_empty());
+        assert_contents(
+            "tests/output/endpoint_with_versions_all.rs",
+            &prettyplease::unparse(&parse_quote! { #item }),
+        );
+    }
+
+    #[test]
+    fn test_endpoint_with_versions_from() {
+        let (item, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/test",
+                versions = "1.2.3"..
+            },
+            quote! {
+                async fn handler_xyz(
+                    _: RequestContext<()>,
+                ) -> Result<HttpResponseUpdatedNoContent, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(errors.is_empty());
+        assert_contents(
+            "tests/output/endpoint_with_versions_from.rs",
+            &prettyplease::unparse(&parse_quote! { #item }),
+        );
+    }
+
+    #[test]
+    fn test_endpoint_with_versions_until() {
+        let (item, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/test",
+                versions = .."1.2.3"
+            },
+            quote! {
+                async fn handler_xyz(
+                    _: RequestContext<()>,
+                ) -> Result<HttpResponseUpdatedNoContent, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(errors.is_empty());
+        assert_contents(
+            "tests/output/endpoint_with_versions_until.rs",
+            &prettyplease::unparse(&parse_quote! { #item }),
+        );
+    }
+
+    #[test]
+    fn test_endpoint_with_versions_from_until() {
+        let (item, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/test",
+                versions = "1.2.3".."4.5.6",
+            },
+            quote! {
+                async fn handler_xyz(
+                    _: RequestContext<()>,
+                ) -> Result<HttpResponseUpdatedNoContent, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(errors.is_empty());
+        assert_contents(
+            "tests/output/endpoint_with_versions_from_until.rs",
+            &prettyplease::unparse(&parse_quote! { #item }),
+        );
+    }
+
+    #[test]
     fn test_endpoint_invalid_item() {
         let (_, errors) = do_endpoint(
             quote! {
@@ -918,6 +1005,165 @@ mod tests {
         assert_eq!(
             errors.get(1).map(ToString::to_string),
             Some("endpoint `handler_xyz` must have at least one RequestContext argument".to_string())
+        );
+    }
+
+    #[test]
+    fn test_operation_id() {
+        let (item, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/a/b/c",
+                operation_id = "vzeroupper"
+            },
+            quote! {
+                pub async fn handler_xyz(
+                    _rqctx: RequestContext<()>,
+                ) -> Result<HttpResponseOk<()>, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(errors.is_empty());
+        assert_contents(
+            "tests/output/endpoint_operation_id.rs",
+            &prettyplease::unparse(&parse_quote! { #item }),
+        );
+    }
+
+    #[test]
+    fn test_endpoint_bad_versions() {
+        let (_, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/a/b/c",
+                versions = 1.2.3,
+            },
+            quote! {
+                pub async fn handler_xyz(
+                    _rqctx: RequestContext<()>,
+                ) -> Result<HttpResponseOk<()>, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+        assert!(!errors.is_empty());
+        assert_eq!(
+            errors.get(0).map(ToString::to_string),
+            Some("expected string literal".to_string()),
+        );
+
+        let (_, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/a/b/c",
+                versions = "one dot two dot three",
+            },
+            quote! {
+                pub async fn handler_xyz(
+                    _rqctx: RequestContext<()>,
+                ) -> Result<HttpResponseOk<()>, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+        assert!(!errors.is_empty());
+        assert_eq!(
+            errors.get(0).map(ToString::to_string),
+            Some(
+                "expected semver: unexpected character 'o' while \
+                 parsing major version number"
+                    .to_string()
+            ),
+        );
+
+        let (_, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/a/b/c",
+                versions = "1.2",
+            },
+            quote! {
+                pub async fn handler_xyz(
+                    _rqctx: RequestContext<()>,
+                ) -> Result<HttpResponseOk<()>, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+        assert!(!errors.is_empty());
+        assert_eq!(
+            errors.get(0).map(ToString::to_string),
+            Some(
+                "expected semver: unexpected end of input while parsing \
+                 minor version number"
+                    .to_string()
+            ),
+        );
+
+        let (_, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/a/b/c",
+                versions = "1.2.3-pre",
+            },
+            quote! {
+                pub async fn handler_xyz(
+                    _rqctx: RequestContext<()>,
+                ) -> Result<HttpResponseOk<()>, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+        assert!(!errors.is_empty());
+        assert_eq!(
+            errors.get(0).map(ToString::to_string),
+            Some("semver pre-release string is not supported here".to_string()),
+        );
+
+        let (_, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/a/b/c",
+                versions = "1.2.3+latest",
+            },
+            quote! {
+                pub async fn handler_xyz(
+                    _rqctx: RequestContext<()>,
+                ) -> Result<HttpResponseOk<()>, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+        assert!(!errors.is_empty());
+        assert_eq!(
+            errors.get(0).map(ToString::to_string),
+            Some("semver build metadata is not supported here".to_string()),
+        );
+
+        let (_, errors) = do_endpoint(
+            quote! {
+                method = GET,
+                path = "/a/b/c",
+                versions = "1.2.5".."1.2.3",
+            },
+            quote! {
+                pub async fn handler_xyz(
+                    _rqctx: RequestContext<()>,
+                ) -> Result<HttpResponseOk<()>, HttpError> {
+                    Ok(())
+                }
+            },
+        );
+        assert!(!errors.is_empty());
+        assert_eq!(
+            errors.get(0).map(ToString::to_string),
+            Some(
+                "\"from\" version (1.2.5) must be earlier \
+                than \"until\" version (1.2.3)"
+                    .to_string()
+            ),
         );
     }
 }

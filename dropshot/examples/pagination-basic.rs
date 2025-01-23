@@ -66,11 +66,11 @@ use dropshot::ConfigDropshot;
 use dropshot::EmptyScanParams;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
-use dropshot::HttpServerStarter;
 use dropshot::PaginationParams;
 use dropshot::Query;
 use dropshot::RequestContext;
 use dropshot::ResultsPage;
+use dropshot::ServerBuilder;
 use dropshot::WhichPage;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -79,7 +79,6 @@ use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::ops::Bound;
-use tracing::info;
 
 /// Object returned by our paginated endpoint
 ///
@@ -174,11 +173,9 @@ async fn main() -> Result<(), String> {
     };
     let mut api = ApiDescription::new();
     api.register(example_list_projects).unwrap();
-    let server = HttpServerStarter::new(&config_dropshot, api, None, ctx)
-        .map_err(|error| format!("failed to create server: {}", error))?
-        .start();
-
-    info!(address = server.local_addr().to_string(), "started http server");
-
+    let server = ServerBuilder::new(api, ctx, None)
+        .config(config_dropshot)
+        .start()
+        .map_err(|error| format!("failed to create server: {}", error))?;
     server.await
 }
