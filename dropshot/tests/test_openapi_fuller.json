@@ -234,6 +234,32 @@
         }
       }
     },
+    "/flattened": {
+      "get": {
+        "tags": [
+          "it"
+        ],
+        "operationId": "big_flat",
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoolStruct"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/impairment": {
       "get": {
         "tags": [
@@ -746,6 +772,42 @@
         }
       }
     },
+    "/thing_with_headers": {
+      "get": {
+        "tags": [
+          "it"
+        ],
+        "operationId": "hparam",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "a",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "b",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "resource updated"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/too/smart/for/my/own/good": {
       "get": {
         "tags": [
@@ -839,9 +901,8 @@
                 }
               },
               "x-foo-mobile": {
-                "description": "this is a foo",
+                "description": "this is a foo that is non-required",
                 "style": "simple",
-                "required": true,
                 "schema": {
                   "$ref": "#/components/schemas/Foo"
                 }
@@ -909,6 +970,61 @@
             "type": "boolean"
           }
         }
+      },
+      "CoolStruct": {
+        "type": "object",
+        "properties": {
+          "another_thing": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "another_thing"
+        ],
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "thing_one": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Foo"
+                ]
+              }
+            },
+            "required": [
+              "thing_one",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "thing_one": {
+                "type": "string"
+              },
+              "thing_two": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Bar"
+                ]
+              }
+            },
+            "required": [
+              "thing_one",
+              "thing_two",
+              "type"
+            ]
+          }
+        ]
       },
       "Error": {
         "description": "Error information from a response.",

@@ -372,16 +372,16 @@ where
     }
 }
 
-/// An error type which can be converted into an HTTP response.
+/// An error type that can be converted into an HTTP response.
 ///
 /// The error types returned by handlers must implement this trait, so that a
 /// response can be generated when the handler returns an error.  In order to
 /// implement this trait, a type must:
 ///
-/// 1. Implement the [`HttpResponseContent`] trait, defining the content of the
+/// 1. Implement the `HttpResponseContent` trait, defining the content of the
 ///    error's response body.  This is most simply done by implementing the
 ///    [`Serialize`] and [`JsonSchema`] traits, for which there's a blanket
-///    implementation of [`HttpResponseContent`] for `T: Serialize +
+///    implementation of `HttpResponseContent` for `T: Serialize +
 ///    JsonSchema`.
 /// 2. Implement [`std::fmt::Display`].  This is used in order to log an internal
 ///    error message when returning an error response to the client.
@@ -1040,7 +1040,7 @@ where
     T: HttpCodedResponse,
 {
     fn to_result(self) -> HttpHandlerResult {
-        self.into().map_err(Into::into)
+        self.into()
     }
     fn response_metadata() -> ApiEndpointResponse {
         ApiEndpointResponse {

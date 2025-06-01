@@ -5,7 +5,7 @@ authors = [
     "Adam H. Leventhal <ahl@oxide.computer>",
     "Clint J. Edwards <clint.j.edwards@gmail.com>",
 ]
-version = "0.15.1"
+version = "0.16.2"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/oxidecomputer/dropshot/"
@@ -20,7 +20,7 @@ workspace = true
 heck = "0.5.0"
 proc-macro2 = "1"
 quote = "1"
-semver = "1.0.25"
+semver = "1.0.26"
 serde_tokenstream = "0.2.2"
 
 [dependencies.serde]
@@ -28,10 +28,10 @@ version = "1.0"
 features = ["derive"]
 
 [dependencies.syn]
-version = "2.0.96"
+version = "2.0.101"
 features = [ "full", "visit", "extra-traits" ]
 
 [dev-dependencies]
-expectorate = "1.1.0"
-prettyplease = "0.2.29"
+expectorate = "1.2.0"
+prettyplease = "0.2.32"
 schema = "0.1.0"

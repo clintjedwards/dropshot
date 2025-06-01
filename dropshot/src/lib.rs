@@ -1,4 +1,4 @@
-// Copyright 2024 Oxide Computer Company
+// Copyright 2025 Oxide Computer Company
 
 //! Dropshot is a general-purpose crate for exposing REST APIs from a Rust
 //! program.  Planned highlights include:
@@ -296,6 +296,7 @@
 //!      rqctx: RequestContext<Context>,
 //!      [query_params: Query<Q>,]
 //!      [path_params: Path<P>,]
+//!      [header_params: Header<H>,]
 //!      [body_param: TypedBody<J>,]
 //!      [body_param: UntypedBody,]
 //!      [body_param: StreamingBody,]
@@ -306,9 +307,9 @@
 //! The `RequestContext` must appear first.  The `Context` type is
 //! caller-provided context which is provided when the server is created.
 //!
-//! The types `Query`, `Path`, `TypedBody`, `UntypedBody`, and `RawRequest` are
-//! called **Extractors** because they cause information to be pulled out of the
-//! request and made available to the handler function.
+//! The types `Query`, `Path`, `Header`, `TypedBody`, `UntypedBody`, and
+//! `RawRequest` are called **Extractors** because they cause information to be
+//! pulled out of the request and made available to the handler function.
 //!
 //! * [`Query`]`<Q>` extracts parameters from a query string, deserializing them
 //!   into an instance of type `Q`. `Q` must implement `serde::Deserialize` and
@@ -316,6 +317,9 @@
 //! * [`Path`]`<P>` extracts parameters from HTTP path, deserializing them into
 //!   an instance of type `P`. `P` must implement `serde::Deserialize` and
 //!   `schemars::JsonSchema`.
+//! * [`Header`]`<H>` extracts parameters from HTTP headers, deserializing
+//!   them into an instance of type `H`. `H` must implement
+//!   `serde::Deserialize` and `schemars::JsonSchema`.
 //! * [`TypedBody`]`<J>` extracts content from the request body by parsing the
 //!   body as JSON (or form/url-encoded) and deserializing it into an instance
 //!   of type `J`. `J` must implement `serde::Deserialize` and `schemars::JsonSchema`.
@@ -695,6 +699,20 @@
 //! versions = ..
 //! ```
 //!
+//! You can also use identifiers, as in:
+//!
+//! ```text
+//! const V_MY_FEATURE_ADDED: semver::Version = semver::Version::new(1, 2, 3);
+//! // They can even be inside a module
+//! mod my_mod {
+//!     const V_MY_FEATURE_REMOVED: semver::Version =
+//!         semver::Version::new(4, 5, 6);
+//! }
+//!
+//! // introduced in 1.2.3 and removed in 4.5.6.
+//! versions = V_MY_FEATURE_ADDED..my_mod::V_MY_FEATURE_REMOVED
+//! ```
+//!
 //! 2. When constructing the server, you provide [`VersionPolicy::Dynamic`] with
 //!    your own impl of [`DynamicVersionPolicy`] that tells Dropshot how to
 //!    determine which API version to use for each request.
@@ -847,7 +865,7 @@ pub use dtrace::ProbeRegistration;
 pub use error::{HttpError, HttpErrorResponseBody};
 pub use extractor::{
     ExclusiveExtractor, ExtractorMetadata, MultipartBody, Path, Query,
-    RawRequest, SharedExtractor, StreamingBody, TypedBody, UntypedBody,
+    RawRequest, SharedExtractor, StreamingBody, TypedBody, UntypedBody, Header
 };
 pub use handler::{
     http_response_found, http_response_see_other,
