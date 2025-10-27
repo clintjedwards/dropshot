@@ -640,10 +640,10 @@ impl<Context: ServerContext> ApiDescription<Context> {
     /// and `version` properties that the `Info` object in an OpenAPI definition
     /// must contain.
     pub fn openapi<S>(
-        &self,
+        &'_ self,
         title: S,
         version: semver::Version,
-    ) -> OpenApiDefinition<Context>
+    ) -> OpenApiDefinition<'_, Context>
     where
         S: AsRef<str>,
     {

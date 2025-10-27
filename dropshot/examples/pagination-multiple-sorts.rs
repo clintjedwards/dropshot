@@ -379,19 +379,22 @@ impl ProjectCollection {
 
     // Iterate by name (ascending, descending)
 
-    pub fn iter_by_name_asc(&self) -> ProjectIter {
+    pub fn iter_by_name_asc(&'_ self) -> ProjectIter<'_> {
         self.make_iter(self.by_name.iter())
     }
-    pub fn iter_by_name_desc(&self) -> ProjectIter {
+    pub fn iter_by_name_desc(&'_ self) -> ProjectIter<'_> {
         self.make_iter(self.by_name.iter().rev())
     }
-    pub fn iter_by_name_asc_from(&self, last_seen: &str) -> ProjectIter {
+    pub fn iter_by_name_asc_from(&'_ self, last_seen: &str) -> ProjectIter<'_> {
         let iter = self
             .by_name
             .range((Bound::Excluded(last_seen.to_string()), Bound::Unbounded));
         self.make_iter(iter)
     }
-    pub fn iter_by_name_desc_from(&self, last_seen: &str) -> ProjectIter {
+    pub fn iter_by_name_desc_from(
+        &'_ self,
+        last_seen: &str,
+    ) -> ProjectIter<'_> {
         let iter = self
             .by_name
             .range((Bound::Unbounded, Bound::Excluded(last_seen.to_string())))
@@ -401,27 +404,27 @@ impl ProjectCollection {
 
     // Iterate by mtime (ascending, descending)
 
-    pub fn iter_by_mtime_asc(&self) -> ProjectIter {
+    pub fn iter_by_mtime_asc(&'_ self) -> ProjectIter<'_> {
         self.make_iter(self.by_mtime.iter())
     }
-    pub fn iter_by_mtime_desc(&self) -> ProjectIter {
+    pub fn iter_by_mtime_desc(&'_ self) -> ProjectIter<'_> {
         self.make_iter(self.by_mtime.iter().rev())
     }
     pub fn iter_by_mtime_asc_from(
-        &self,
+        &'_ self,
         last_mtime: &DateTime<Utc>,
         last_name: &str,
-    ) -> ProjectIter {
+    ) -> ProjectIter<'_> {
         let last_seen = &(*last_mtime, last_name.to_string());
         let iter =
             self.by_mtime.range((Bound::Excluded(last_seen), Bound::Unbounded));
         self.make_iter(iter)
     }
     pub fn iter_by_mtime_desc_from(
-        &self,
+        &'_ self,
         last_mtime: &DateTime<Utc>,
         last_name: &str,
-    ) -> ProjectIter {
+    ) -> ProjectIter<'_> {
         let last_seen = &(*last_mtime, last_name.to_string());
         let iter = self
             .by_mtime
