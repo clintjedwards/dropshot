@@ -1,4 +1,4 @@
-// Copyright 2021 Oxide Computer Company
+// Copyright 2026 Oxide Computer Company
 
 //! Example using Dropshot to serve files
 
@@ -7,11 +7,14 @@ use dropshot::Body;
 use dropshot::HttpError;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
-use dropshot::{endpoint, Path};
+use dropshot::{Path, endpoint};
+use futures::TryStreamExt as _;
 use http::{Response, StatusCode};
+use http_body_util::StreamBody;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
+use tokio_util::io::ReaderStream;
 use tracing::info;
 
 /// Our context is simply the root of the directory we want to serve.
@@ -128,10 +131,8 @@ async fn static_content(
             )
         })?;
 
-        let file_access = hyper_staticfile::vfs::TokioFileAccess::new(file);
-        let file_stream =
-            hyper_staticfile::util::FileBytesStream::new(file_access);
-        let body = Body::wrap(hyper_staticfile::Body::Full(file_stream));
+        let stream = ReaderStream::new(file).map_ok(hyper::body::Frame::data);
+        let body = Body::wrap(StreamBody::new(stream));
 
         // Derive the MIME type from the file name
         let content_type = mime_guess::from_path(&entry)

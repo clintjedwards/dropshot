@@ -1,10 +1,10 @@
 // Copyright 2023 Oxide Computer Company
 
+use crate::RequestContext;
 use crate::api_description::ApiEndpointParameter;
 use crate::api_description::{ApiEndpointBodyContentType, ExtensionMode};
 use crate::error::HttpError;
 use crate::server::ServerContext;
-use crate::RequestContext;
 
 use async_trait::async_trait;
 
@@ -15,7 +15,7 @@ pub struct ExtractorMetadata {
     pub parameters: Vec<ApiEndpointParameter>,
 }
 
-/// Extractors that require exclusive access to the underyling `hyper::Request`
+/// Extractors that require exclusive access to the underlying `hyper::Request`
 ///
 /// These extractors usually need to read the body of the request or else modify
 /// how the server treats the rest of it (e.g., websocket upgrade).  There may
@@ -203,7 +203,9 @@ macro_rules! impl_rqextractor_for_tuple {
     }
 }}
 
-// Implement `RequestExtractor` for any tuple consisting of 0-2 shared
+// Implement `RequestExtractor` for any tuple consisting of 0-4 shared
 // extractors and exactly one exclusive extractor.
 impl_rqextractor_for_tuple!(S1);
 impl_rqextractor_for_tuple!(S1, S2);
+impl_rqextractor_for_tuple!(S1, S2, S3);
+impl_rqextractor_for_tuple!(S1, S2, S3, S4);

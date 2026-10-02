@@ -1,13 +1,13 @@
 // Copyright 2023 Oxide Computer Company
 //! Example use of Dropshot for multipart form-data.
 
-use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::Body;
 use dropshot::HttpError;
 use dropshot::MultipartBody;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
+use dropshot::endpoint;
 use http::{Response, StatusCode};
 use tracing::info;
 

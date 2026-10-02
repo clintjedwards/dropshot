@@ -6,7 +6,7 @@ use dropshot::Body;
 use dropshot::HttpError;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
-use dropshot::{endpoint, Path};
+use dropshot::{Path, endpoint};
 use http::{Response, StatusCode};
 use schemars::JsonSchema;
 use serde::Deserialize;

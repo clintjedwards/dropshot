@@ -2,11 +2,11 @@
 
 //! Tests for configuration file.
 
-use dropshot::test_util::read_config;
 use dropshot::Body;
+use dropshot::test_util::read_config;
 use dropshot::{
-    ConfigDropshot, ConfigTls, HandlerTaskMode, HttpError, HttpResponseOk,
-    RequestContext,
+    CompressionConfig, ConfigDropshot, ConfigTls, HandlerTaskMode, HttpError,
+    HttpResponseOk, RequestContext,
 };
 use dropshot::{HttpServer, ServerBuilder};
 use std::str::FromStr;
@@ -63,6 +63,7 @@ fn test_valid_config_all_settings() {
             bind_address: "127.0.0.1:12345".parse().unwrap(),
             default_request_body_max_bytes: 1048576,
             default_handler_task_mode: HandlerTaskMode::CancelOnDisconnect,
+            compression: CompressionConfig::default(),
         },
     );
 }
@@ -176,6 +177,7 @@ fn make_config(
         ),
         default_request_body_max_bytes: 1024,
         default_handler_task_mode,
+        compression: CompressionConfig::Gzip,
     }
 }
 

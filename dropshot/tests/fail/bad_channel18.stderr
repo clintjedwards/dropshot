@@ -24,10 +24,27 @@ error[E0277]: the trait bound `WebsocketConnection: SharedExtractor` is not sati
 25 |     _upgraded: WebsocketConnection,
    |                ^^^^^^^^^^^^^^^^^^^ the trait `SharedExtractor` is not implemented for `WebsocketConnection`
    |
-   = help: the following other types implement trait `SharedExtractor`:
-             dropshot::Header<HeaderType>
-             dropshot::Path<PathType>
-             dropshot::Query<QueryType>
+help: the following other types implement trait `SharedExtractor`
+  --> src/extractor/query.rs
+   |
+   | / impl<QueryType> SharedExtractor for Query<QueryType>
+   | | where
+   | |     QueryType: JsonSchema + DeserializeOwned + Send + Sync + 'static,
+   | |_____________________________________________________________________^ `dropshot::Query<QueryType>`
+   |
+  ::: src/extractor/path.rs
+   |
+   | / impl<PathType> SharedExtractor for Path<PathType>
+   | | where
+   | |     PathType: DeserializeOwned + JsonSchema + Send + Sync + 'static,
+   | |____________________________________________________________________^ `dropshot::Path<PathType>`
+   |
+  ::: src/extractor/header.rs
+   |
+   | / impl<HeaderType> SharedExtractor for Header<HeaderType>
+   | | where
+   | |     HeaderType: JsonSchema + DeserializeOwned + Send + Sync + 'static,
+   | |______________________________________________________________________^ `dropshot::Header<HeaderType>`
 note: required by a bound in `need_shared_extractor`
   --> tests/fail/bad_channel18.rs:19:1
    |
@@ -60,7 +77,7 @@ note: required by a bound in `validate_websocket_connection_type`
 26 |     _query: Query<Stuff>,
    |             ^^^^^ required by this bound in `validate_websocket_connection_type`
 
-error[E0277]: the trait bound `fn(RequestContext<()>, WebsocketConnection, WebsocketUpgrade) -> impl Future<Output = Result<http::response::Response<Body>, HttpError>> {websocket_channel_not_last_adapter}: dropshot::handler::HttpHandlerFunc<_, _, _>` is not satisfied
+error[E0277]: the trait bound `fn(RequestContext<()>, WebsocketConnection, WebsocketUpgrade) -> impl Future<Output = Result<dropshot::websocket::SwitchingToWebsocket, HttpError>> {websocket_channel_not_last_adapter}: dropshot::handler::HttpHandlerFunc<_, _, _>` is not satisfied
   --> tests/fail/bad_channel18.rs:23:1
    |
 19 | / #[channel {
@@ -71,7 +88,7 @@ error[E0277]: the trait bound `fn(RequestContext<()>, WebsocketConnection, Webso
 23 |   async fn websocket_channel_not_last(
    |   ^^^^^ unsatisfied trait bound
    |
-   = help: the trait `dropshot::handler::HttpHandlerFunc<_, _, _>` is not implemented for fn item `fn(RequestContext<()>, WebsocketConnection, WebsocketUpgrade) -> impl Future<Output = Result<http::response::Response<Body>, HttpError>> {websocket_channel_not_last_adapter}`
+   = help: the trait `dropshot::handler::HttpHandlerFunc<_, _, _>` is not implemented for fn item `fn(RequestContext<()>, WebsocketConnection, WebsocketUpgrade) -> impl Future<Output = Result<dropshot::websocket::SwitchingToWebsocket, HttpError>> {websocket_channel_not_last_adapter}`
 note: required by a bound in `ApiEndpoint::<Context>::new`
   --> src/api_description.rs
    |

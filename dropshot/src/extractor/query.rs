@@ -1,25 +1,26 @@
-// Copyright 2025 Oxide Computer Company
+// Copyright 2026 Oxide Computer Company
 
 //! Querystring-related extractor(s)
 
 use super::metadata::get_metadata;
-use crate::api_description::ApiEndpointBodyContentType;
-use crate::api_description::ApiEndpointParameterLocation;
-use crate::error::HttpError;
-use crate::server::ServerContext;
 use crate::ExtractorMetadata;
 use crate::RequestContext;
 use crate::RequestInfo;
 use crate::SharedExtractor;
+use crate::api_description::ApiEndpointBodyContentType;
+use crate::api_description::ApiEndpointParameterLocation;
+use crate::error::HttpError;
+use crate::server::ServerContext;
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 
 /// `Query<QueryType>` is an extractor used to deserialize an instance of
-/// `QueryType` from an HTTP request's query string.  `QueryType` is any
-/// structure of yours that implements [serde::Deserialize] and
-/// [schemars::JsonSchema].  See the crate documentation for more information.
+/// `QueryType` from an HTTP request's query string.  `QueryType` may be any
+/// struct of yours that implements [serde::Deserialize] and
+/// [schemars::JsonSchema].
+/// See the top-level crate documentation for more information.
 #[derive(Debug)]
 pub struct Query<QueryType: DeserializeOwned + JsonSchema + Send + Sync> {
     inner: QueryType,
@@ -29,6 +30,34 @@ impl<QueryType: DeserializeOwned + JsonSchema + Send + Sync> Query<QueryType> {
     // TODO drop this in favor of Deref?  + Display and Debug for convenience?
     pub fn into_inner(self) -> QueryType {
         self.inner
+    }
+
+    /// Convert this `Query` into one with a different type parameter; this
+    /// may be useful when multiple, related endpoints take query parameters
+    /// that are similar and convertible into a common type.
+    pub fn map<T, F>(self, f: F) -> Query<T>
+    where
+        T: DeserializeOwned + JsonSchema + Send + Sync,
+        F: FnOnce(QueryType) -> T,
+    {
+        Query { inner: f(self.inner) }
+    }
+
+    /// Similar to [`Query::map`] but with support for fallibility.
+    pub fn try_map<T, E, F>(self, f: F) -> Result<Query<T>, E>
+    where
+        T: DeserializeOwned + JsonSchema + Send + Sync,
+        F: FnOnce(QueryType) -> Result<T, E>,
+    {
+        Ok(Query { inner: f(self.inner)? })
+    }
+}
+
+impl<QueryType: DeserializeOwned + JsonSchema + Send + Sync> From<QueryType>
+    for Query<QueryType>
+{
+    fn from(value: QueryType) -> Self {
+        Self { inner: value }
     }
 }
 

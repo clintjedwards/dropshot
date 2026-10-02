@@ -1,12 +1,13 @@
 [package]
 name = "dropshot_endpoint"
 description = "macro used by dropshot consumers for registering handlers"
+version = "0.17.1"
 authors = [
     "Adam H. Leventhal <ahl@oxide.computer>",
     "Clint J. Edwards <clint.j.edwards@gmail.com>",
 ]
-version = "0.16.2"
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 license = "Apache-2.0"
 repository = "https://github.com/oxidecomputer/dropshot/"
 
@@ -20,18 +21,18 @@ workspace = true
 heck = "0.5.0"
 proc-macro2 = "1"
 quote = "1"
-semver = "1.0.26"
-serde_tokenstream = "0.2.2"
+semver = "1.0.28"
+serde_tokenstream = "0.3.0"
 
 [dependencies.serde]
 version = "1.0"
 features = ["derive"]
 
 [dependencies.syn]
-version = "2.0.101"
+version = "3.0.2"
 features = [ "full", "visit", "extra-traits" ]
 
 [dev-dependencies]
 expectorate = "1.2.0"
-prettyplease = "0.2.32"
-schema = "0.1.0"
+prettyplease = "0.3.0"
+schema = "0.2.0"

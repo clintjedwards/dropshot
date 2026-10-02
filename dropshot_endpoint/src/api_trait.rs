@@ -1,4 +1,4 @@
-// Copyright 2024 Oxide Computer Company
+// Copyright 2026 Oxide Computer Company
 
 //! Support for the `#[dropshot::api_description]` attribute macro.
 //!
@@ -25,16 +25,16 @@ use std::collections::HashMap;
 
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use serde::Deserialize;
 use serde_tokenstream::{
-    from_tokenstream, from_tokenstream_spanned, ParseWrapper,
+    ParseWrapper, from_tokenstream, from_tokenstream_spanned,
 };
-use syn::{parse_quote, parse_quote_spanned, spanned::Spanned, Error};
+use syn::{Error, parse_quote, parse_quote_spanned, spanned::Spanned};
 
 use crate::{
     channel::ChannelParams,
-    doc::{string_to_doc_attrs, ExtractedDoc},
+    doc::{ExtractedDoc, string_to_doc_attrs},
     endpoint::EndpointParams,
     error_store::{ErrorSink, ErrorStore},
     metadata::{
@@ -46,7 +46,7 @@ use crate::{
         ItemTraitPartParsed, TraitItemFnForSignature, TraitItemPartParsed,
         UnparsedBlock,
     },
-    util::{get_crate, MacroKind},
+    util::{MacroKind, get_crate},
 };
 
 pub(crate) fn do_trait(
@@ -231,7 +231,9 @@ impl<'ast> ApiParser<'ast> {
         // that would lose valuable span information.
         let mut context_item = None;
         for item in &item_trait.item.items {
-            if let TraitItemPartParsed::Other(syn::TraitItem::Type(ty)) = item {
+            if let TraitItemPartParsed::Other(other) = item
+                && let syn::TraitItem::Type(ty) = other.as_ref()
+            {
                 if ty.ident == context_name {
                     // This is the context item.
                     context_item = Some(ContextItem::new(ty, &errors));
@@ -266,7 +268,7 @@ impl<'ast> ApiParser<'ast> {
                 // Everything else is permissible -- just ensure that they
                 // aren't marked as `endpoint` or `channel`.
                 TraitItemPartParsed::Other(other) => {
-                    let should_push = match other {
+                    let should_push = match other.as_ref() {
                         syn::TraitItem::Const(c) => {
                             check_endpoint_or_channel_on_non_fn(
                                 "const",
@@ -351,8 +353,10 @@ impl<'ast> ApiParser<'ast> {
 
     fn to_output(&self) -> ApiOutput {
         let context = format!("Self::{}", self.context_item.ident());
-        let context_item =
-            self.make_context_trait_item().map(TraitItemPartParsed::Other);
+        let context_item = self
+            .make_context_trait_item()
+            .map(Box::new)
+            .map(TraitItemPartParsed::Other);
         let other_items =
             self.items.iter().map(|item| item.to_out_trait_item());
         let out_items = context_item.into_iter().chain(other_items);
@@ -592,11 +596,7 @@ impl<'ast> ContextItem<'ast> {
         }
 
         // Don't return the type if there were errors.
-        if errors.has_errors() {
-            Self::Invalid(ty)
-        } else {
-            Self::Valid(ty)
-        }
+        if errors.has_errors() { Self::Invalid(ty) } else { Self::Valid(ty) }
     }
 
     fn new_missing(
@@ -1103,7 +1103,9 @@ impl ApiItem<'_> {
 
     fn to_out_trait_item(&self) -> TraitItemPartParsed {
         match self {
-            Self::Fn(f) => TraitItemPartParsed::Fn(f.to_out_trait_item()),
+            Self::Fn(f) => {
+                TraitItemPartParsed::Fn(Box::new(f.to_out_trait_item()))
+            }
             Self::Other(o) => {
                 // Strip recognized attributes, retaining all others.
                 o.clone_and_strip_recognized_attrs()
@@ -1191,13 +1193,19 @@ impl<'ast> ApiFnItem<'ast> {
                 for attr in rest {
                     let msg = match (first, attr) {
                         (ApiAttr::Endpoint(_), ApiAttr::Endpoint(_)) => {
-                            format!("method `{name}` marked as endpoint multiple times")
+                            format!(
+                                "method `{name}` marked as endpoint multiple times"
+                            )
                         }
                         (ApiAttr::Channel(_), ApiAttr::Channel(_)) => {
-                            format!("method `{name}` marked as channel multiple times")
+                            format!(
+                                "method `{name}` marked as channel multiple times"
+                            )
                         }
                         _ => {
-                            format!("method `{name}` marked as both endpoint and channel")
+                            format!(
+                                "method `{name}` marked as both endpoint and channel"
+                            )
                         }
                     };
 
@@ -1550,6 +1558,7 @@ fn transform_signature(f: &mut TraitItemFnForSignature, ret_ty: &syn::Type) {
             ::core::future::Future<Output = #ret_ty> + Send + 'static
         };
         syn::Type::ImplTrait(syn::TypeImplTrait {
+            attrs: Default::default(),
             impl_token: Default::default(),
             bounds,
         })

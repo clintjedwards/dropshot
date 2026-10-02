@@ -14,6 +14,7 @@ mod config;
 mod custom_errors;
 mod demo;
 mod detached_shutdown;
+mod gzip;
 mod multipart;
 mod openapi;
 mod pagination;

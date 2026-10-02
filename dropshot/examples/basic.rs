@@ -1,7 +1,6 @@
 // Copyright 2020 Oxide Computer Company
 //! Example use of Dropshot.
 
-use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
@@ -9,6 +8,7 @@ use dropshot::HttpResponseUpdatedNoContent;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
 use dropshot::TypedBody;
+use dropshot::endpoint;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;

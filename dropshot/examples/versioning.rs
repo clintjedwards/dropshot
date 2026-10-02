@@ -95,12 +95,12 @@
 //! {"thing1_late":"hello from a LATE v1"}
 //! ```
 
-use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
+use dropshot::endpoint;
 use dropshot::{ClientSpecifiesVersionInHeader, VersionPolicy};
 use http::HeaderName;
 use schemars::JsonSchema;

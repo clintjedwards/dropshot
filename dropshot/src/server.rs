@@ -1,9 +1,15 @@
-// Copyright 2024 Oxide Computer Company
+// Copyright 2026 Oxide Computer Company
+
 //! Generic server-wide state and facilities
 
+use super::ProbeRegistration;
 use super::api_description::ApiDescription;
 use super::body::Body;
-use super::config::{ConfigDropshot, ConfigTls};
+use super::compression::add_vary_header;
+use super::compression::apply_gzip_compression;
+use super::compression::is_compressible_content_type;
+use super::compression::should_compress_response;
+use super::config::{CompressionConfig, ConfigDropshot, ConfigTls};
 #[cfg(feature = "usdt-probes")]
 use super::dtrace::probes;
 use super::handler::HandlerError;
@@ -11,7 +17,6 @@ use super::handler::RequestContext;
 use super::http_util::HEADER_REQUEST_ID;
 use super::router::HttpRouter;
 use super::versioning::VersionPolicy;
-use super::ProbeRegistration;
 
 use crate::config::HandlerTaskMode;
 use crate::RequestInfo;
@@ -22,11 +27,11 @@ use futures::future::{
 };
 use futures::lock::Mutex;
 use futures::stream::{Stream, StreamExt};
-use hyper::service::Service;
 use hyper::Request;
 use hyper::Response;
+use hyper::service::Service;
 use rustls;
-use scopeguard::{guard, ScopeGuard};
+use scopeguard::{ScopeGuard, guard};
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
@@ -41,7 +46,7 @@ use thiserror::Error;
 use tokio::io::ReadBuf;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
-use tokio_rustls::{server::TlsStream, TlsAcceptor};
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
 use tracing::{trace, warn};
 use uuid::Uuid;
 use waitgroup::WaitGroup;
@@ -119,6 +124,8 @@ pub struct ServerConfig {
     /// Default behavior for HTTP handler functions with respect to clients
     /// disconnecting early.
     pub default_handler_task_mode: HandlerTaskMode,
+    /// Configuration for response compression.
+    pub compression: CompressionConfig,
 }
 
 /// See [`ServerBuilder`] instead.
@@ -199,6 +206,7 @@ impl<C: ServerContext> HttpServerStarter<C> {
             page_max_nitems: NonZeroU32::new(10000).unwrap(),
             page_default_nitems: NonZeroU32::new(100).unwrap(),
             default_handler_task_mode: config.default_handler_task_mode,
+            compression: config.compression,
         };
 
         let tls_acceptor = tls
@@ -848,6 +856,7 @@ async fn http_request_handle_wrap<C: ServerContext>(
     Ok(response)
 }
 
+#[allow(clippy::result_large_err)]
 async fn http_request_handle<C: ServerContext>(
     server: Arc<DropshotState<C>>,
     request: Request<hyper::body::Incoming>,
@@ -861,7 +870,7 @@ async fn http_request_handle<C: ServerContext>(
     // this to take forever.
     // TODO-correctness: Do we need to dump the body on errors?
     let request = request.map(crate::Body::wrap);
-    let method = request.method();
+    let method = request.method().clone();
     let uri = request.uri();
     let found_version = server.version_policy.request_version(&request)?;
     let lookup_result = server.router.lookup_route(
@@ -875,6 +884,7 @@ async fn http_request_handle<C: ServerContext>(
         endpoint: lookup_result.endpoint,
         request_id: request_id.to_string(),
     };
+    let request_headers = rqctx.request.headers().clone();
     let handler = lookup_result.handler;
 
     let mut response = match server.config.default_handler_task_mode {
@@ -902,8 +912,8 @@ async fn http_request_handle<C: ServerContext>(
                         ),
                         Err(error) => {
                             warn!(response_code = error.status_code().as_str(),
-                                error_message_internal = error.external_message(),
-                                error_message_external = error.internal_message(),
+                                error_message_internal = error.internal_message(),
+                                error_message_external = error.external_message(),
                                 "request completed after handler was already cancelled"
                             );
                         }
@@ -917,13 +927,13 @@ async fn http_request_handle<C: ServerContext>(
 
             // The only way we can fail to receive on `rx` is if `tx` is
             // dropped before a result is sent, which can only happen if
-            // `handle_request` panics. We will propogate such a panic here,
+            // `handle_request` panics. We will propagate such a panic here,
             // just as we would have in `CancelOnDisconnect` mode above (where
             // we call the handler directly).
             match rx.await {
                 Ok(result) => result?,
                 Err(_) => {
-                    tracing::error!("handler panicked; propogating panic");
+                    tracing::error!("handler panicked; propagating panic");
 
                     // To get the panic, we now need to await `handler_task`; we
                     // know it is complete _and_ it failed, because it has
@@ -937,6 +947,30 @@ async fn http_request_handle<C: ServerContext>(
             }
         }
     };
+
+    if matches!(server.config.compression, CompressionConfig::Gzip)
+        && is_compressible_content_type(response.headers())
+    {
+        // Add Vary: Accept-Encoding header for all compressible content
+        // types. This needs to be there even if the response ends up not being
+        // compressed because it tells caches (like browsers and CDNs) that the
+        // response content depends on the value of the Accept-Encoding header.
+        // Without this, a cache might mistakenly serve a compressed response to
+        // a client that cannot decompress it, or serve an uncompressed response
+        // to a client that could have benefited from compression.
+        add_vary_header(response.headers_mut());
+
+        if should_compress_response(
+            &method,
+            &request_headers,
+            response.status(),
+            response.headers(),
+            response.extensions(),
+        ) {
+            response = apply_gzip_compression(response);
+        }
+    }
+
     response.headers_mut().insert(
         HEADER_REQUEST_ID,
         http::header::HeaderValue::from_str(&request_id).unwrap(),
@@ -1035,9 +1069,7 @@ pub enum BuildError {
         #[source]
         error: std::io::Error,
     },
-    #[error(
-        "unversioned servers cannot have endpoints with specific versions"
-    )]
+    #[error("unversioned servers cannot have endpoints with specific versions")]
     UnversionedServerHasVersionedRoutes,
 }
 
@@ -1161,11 +1193,11 @@ mod test {
     // Referring to the current crate as "dropshot::" instead of "crate::"
     // helps the endpoint macro with module lookup.
     use crate as dropshot;
-    use dropshot::endpoint;
-    use dropshot::test_util::ClientTestContext;
     use dropshot::HttpError;
     use dropshot::HttpResponseOk;
     use dropshot::RequestContext;
+    use dropshot::endpoint;
+    use dropshot::test_util::ClientTestContext;
     use http::StatusCode;
     use hyper::Method;
 

@@ -1,14 +1,14 @@
-// Copyright 2023 Oxide Computer Company
+// Copyright 2025 Oxide Computer Company
 
 use dropshot::{
-    channel, endpoint, http_response_found, http_response_see_other,
-    http_response_temporary_redirect, ApiDescription,
-    ApiDescriptionRegisterError, FreeformBody, Header, HttpError,
-    HttpResponseAccepted, HttpResponseCreated, HttpResponseDeleted,
+    ApiDescription, ApiDescriptionRegisterError, FreeformBody, Header,
+    HttpError, HttpResponseAccepted, HttpResponseCreated, HttpResponseDeleted,
     HttpResponseFound, HttpResponseHeaders, HttpResponseOk,
     HttpResponseSeeOther, HttpResponseTemporaryRedirect,
     HttpResponseUpdatedNoContent, MultipartBody, PaginationParams, Path, Query,
     RequestContext, ResultsPage, TagConfig, TagDetails, TypedBody, UntypedBody,
+    channel, endpoint, http_response_found, http_response_see_other,
+    http_response_temporary_redirect,
 };
 use dropshot::{Body, WebsocketConnection};
 use schemars::JsonSchema;
@@ -548,6 +548,146 @@ async fn handler29(
     todo!()
 }
 
+#[derive(Deserialize, JsonSchema)]
+struct PathArgs30 {
+    #[expect(unused)]
+    aa: WithXRustType<XRustAParam>,
+    #[expect(unused)]
+    bb: WithXRustType<XRustBParam>,
+}
+
+#[derive(Deserialize, Debug)]
+struct WithXRustType<T> {
+    _data: T,
+}
+
+impl<T: JsonSchema> JsonSchema for WithXRustType<T> {
+    fn schema_name() -> String {
+        format!("WithXRustTypeFor{}", T::schema_name())
+    }
+
+    fn json_schema(
+        r#gen: &mut schemars::r#gen::SchemaGenerator,
+    ) -> schemars::schema::Schema {
+        use schemars::schema::*;
+
+        let mut schema = SchemaObject {
+            instance_type: Some(SingleOrVec::Single(Box::new(
+                InstanceType::String,
+            ))),
+            ..Default::default()
+        };
+
+        // Add the x-rust-type extension.
+        let mut extensions = schemars::Map::new();
+        let rust_type = serde_json::json!({
+            "crate": "foo",
+            "version": "*",
+            "path": "foo",
+            "parameters": [
+                r#gen.subschema_for::<T>(),
+            ],
+        });
+        extensions.insert("x-rust-type".to_string(), rust_type);
+        schema.extensions = extensions;
+
+        Schema::Object(schema)
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct XRustAParam {
+    #[expect(unused)]
+    data: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+enum XRustBParam {}
+
+#[endpoint {
+    method = PUT,
+    path = "/testing/{aa}/{bb}",
+    tags = ["it"]
+}]
+async fn handler30(
+    _: RequestContext<()>,
+    _: Path<PathArgs30>,
+) -> Result<HttpResponseOk<CoolStruct>, HttpError> {
+    todo!();
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct PathArgs31 {
+    #[expect(unused)]
+    aa: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct Headers31 {
+    #[expect(unused)]
+    header_a: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct Query31 {
+    #[expect(unused)]
+    query_a: String,
+}
+
+#[endpoint {
+    method = GET,
+    path = "/testing/{aa}",
+    tags = ["it"]
+}]
+async fn handler31(
+    _: RequestContext<()>,
+    _: Path<PathArgs31>,
+    _: Header<Headers31>,
+    _: Query<Query31>,
+    _: UntypedBody,
+) -> Result<HttpResponseOk<CoolStruct>, HttpError> {
+    todo!();
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CustomShared32 {
+    pub a: String,
+}
+
+#[async_trait::async_trait]
+impl dropshot::SharedExtractor for CustomShared32 {
+    async fn from_request<Context: dropshot::ServerContext>(
+        _rqctx: &RequestContext<Context>,
+    ) -> Result<Self, HttpError> {
+        Ok(Self { a: "test".to_string() })
+    }
+
+    fn metadata(
+        _body_content_type: dropshot::ApiEndpointBodyContentType,
+    ) -> dropshot::ExtractorMetadata {
+        dropshot::ExtractorMetadata {
+            extension_mode: dropshot::ExtensionMode::None,
+            parameters: vec![],
+        }
+    }
+}
+
+#[endpoint {
+    method = GET,
+    path = "/testing32/{aa}",
+    tags = ["it"]
+}]
+async fn handler32(
+    _: RequestContext<()>,
+    _: Path<PathArgs31>,
+    _: Header<Headers31>,
+    _: Query<Query31>,
+    _: CustomShared32,
+    _: UntypedBody,
+) -> Result<HttpResponseOk<CoolStruct>, HttpError> {
+    todo!();
+}
+
 fn make_api(
     maybe_tag_config: Option<TagConfig>,
 ) -> Result<ApiDescription<()>, ApiDescriptionRegisterError> {
@@ -586,6 +726,9 @@ fn make_api(
     api.register(handler27)?;
     api.register(handler28)?;
     api.register(handler29)?;
+    api.register(handler30)?;
+    api.register(handler31)?;
+    api.register(handler32)?;
     Ok(api)
 }
 

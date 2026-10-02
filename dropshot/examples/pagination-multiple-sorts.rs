@@ -70,7 +70,7 @@
 //! versioned JSON structure describing the scan and the client's position in the
 //! scan:
 //!
-//! ```ignore
+//! ```text,ignore
 //! $ echo -n 'eyJ2IjoidjEiLCJwYWdlX3N0YXJ0Ijp7Im5hbWUiOlsiYXNjZW5kaW5nIiwicHJvamVjdDAwNiJdfX0=' | base64 -d | json
 //! {
 //!   "v": "v1",
@@ -88,10 +88,9 @@
 //! be relied upon.  We mention it here just to help explain how the pagination
 //! mechanism works.
 
-use chrono::offset::TimeZone;
 use chrono::DateTime;
 use chrono::Utc;
-use dropshot::endpoint;
+use chrono::offset::TimeZone;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
 use dropshot::HttpError;
@@ -105,6 +104,7 @@ use dropshot::RequestContext;
 use dropshot::ResultsPage;
 use dropshot::ServerBuilder;
 use dropshot::WhichPage;
+use dropshot::endpoint;
 use hyper::Uri;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -379,22 +379,19 @@ impl ProjectCollection {
 
     // Iterate by name (ascending, descending)
 
-    pub fn iter_by_name_asc(&'_ self) -> ProjectIter<'_> {
+    pub fn iter_by_name_asc(&self) -> ProjectIter<'_> {
         self.make_iter(self.by_name.iter())
     }
-    pub fn iter_by_name_desc(&'_ self) -> ProjectIter<'_> {
+    pub fn iter_by_name_desc(&self) -> ProjectIter<'_> {
         self.make_iter(self.by_name.iter().rev())
     }
-    pub fn iter_by_name_asc_from(&'_ self, last_seen: &str) -> ProjectIter<'_> {
+    pub fn iter_by_name_asc_from(&self, last_seen: &str) -> ProjectIter<'_> {
         let iter = self
             .by_name
             .range((Bound::Excluded(last_seen.to_string()), Bound::Unbounded));
         self.make_iter(iter)
     }
-    pub fn iter_by_name_desc_from(
-        &'_ self,
-        last_seen: &str,
-    ) -> ProjectIter<'_> {
+    pub fn iter_by_name_desc_from(&self, last_seen: &str) -> ProjectIter<'_> {
         let iter = self
             .by_name
             .range((Bound::Unbounded, Bound::Excluded(last_seen.to_string())))
@@ -404,10 +401,10 @@ impl ProjectCollection {
 
     // Iterate by mtime (ascending, descending)
 
-    pub fn iter_by_mtime_asc(&'_ self) -> ProjectIter<'_> {
+    pub fn iter_by_mtime_asc(&self) -> ProjectIter<'_> {
         self.make_iter(self.by_mtime.iter())
     }
-    pub fn iter_by_mtime_desc(&'_ self) -> ProjectIter<'_> {
+    pub fn iter_by_mtime_desc(&self) -> ProjectIter<'_> {
         self.make_iter(self.by_mtime.iter().rev())
     }
     pub fn iter_by_mtime_asc_from(

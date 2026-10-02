@@ -67,7 +67,6 @@
 //! querying server "A" to show that "B" is gone. The logfiles of the running
 //! process will also note the shutdown of server B.
 
-use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigDropshot;
 use dropshot::HttpError;
@@ -79,10 +78,11 @@ use dropshot::Path;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
 use dropshot::TypedBody;
-use futures::future::BoxFuture;
-use futures::stream::FuturesUnordered;
+use dropshot::endpoint;
 use futures::FutureExt;
 use futures::StreamExt;
+use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -91,8 +91,8 @@ use std::collections::HashMap;
 use std::mem;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use tracing::info;
 
 #[tokio::main]
@@ -182,7 +182,9 @@ impl SharedMultiServerContext {
         let mut servers = self.servers.lock().await;
         let slot = match servers.entry(name.to_string()) {
             Entry::Occupied(_) => {
-                return Err(format!("already running a server named {name:?}",))
+                return Err(
+                    format!("already running a server named {name:?}",),
+                );
             }
             Entry::Vacant(slot) => slot,
         };

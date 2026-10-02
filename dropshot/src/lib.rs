@@ -57,7 +57,7 @@
 //!     // Register API functions -- see detailed example or ApiDescription docs.
 //!
 //!     // Start the server.
-//!     let server = ServerBuilder::new(api, Arc::new(()), None)
+//!     let server = ServerBuilder::new(api, (), None)
 //!         .start()
 //!         .map_err(|error| format!("failed to start server: {}", error))?;
 //!
@@ -66,8 +66,11 @@
 //! ```
 //!
 //! This server returns a 404 for all resources because no API functions were
-//! registered.  See `examples/basic.rs` for a simple, documented example that
-//! provides a few resources using shared state.
+//! registered.  See [`examples/basic.rs`] for a simple, documented example
+//! that provides a few resources using shared state.
+//!
+//! [`examples/basic.rs`]:
+//!     https://github.com/oxidecomputer/dropshot/blob/main/dropshot/examples/basic.rs
 //!
 //! ## API Handler Functions
 //!
@@ -281,6 +284,18 @@
 )]
 #![cfg_attr(feature = "internal-docs", doc = simple_mermaid::mermaid!("../large-service-dep-graph.mmd"))]
 //!
+//! ### Dropshot API manager
+//!
+//! For OpenAPI document generation from API traits, the Dropshot project
+//! provides an **OpenAPI manager**. The manager can be used to:
+//!
+//! * Generate OpenAPI documents from API traits
+//! * Check that OpenAPI documents are up-to-date, including in CI
+//! * Manage [versioned](#api-versioning) API documents
+//!
+//! For more information, see the documentation for
+//! [`dropshot-api-manager`](https://crates.io/crates/dropshot-api-manager).
+//!
 //! ### `#[endpoint { ... }]` attribute parameters
 //!
 //! The `endpoint` attribute accepts parameters the affect the operation of
@@ -313,13 +328,14 @@
 //!
 //! * [`Query`]`<Q>` extracts parameters from a query string, deserializing them
 //!   into an instance of type `Q`. `Q` must implement `serde::Deserialize` and
-//!   `schemars::JsonSchema`.
+//!   `schemars::JsonSchema`. See below for additional restrictions.
 //! * [`Path`]`<P>` extracts parameters from HTTP path, deserializing them into
 //!   an instance of type `P`. `P` must implement `serde::Deserialize` and
-//!   `schemars::JsonSchema`.
+//!   `schemars::JsonSchema`. See below for additional restrictions.
 //! * [`Header`]`<H>` extracts parameters from HTTP headers, deserializing
 //!   them into an instance of type `H`. `H` must implement
-//!   `serde::Deserialize` and `schemars::JsonSchema`.
+//!   `serde::Deserialize` and `schemars::JsonSchema`. See below for additional
+//!   restrictions.
 //! * [`TypedBody`]`<J>` extracts content from the request body by parsing the
 //!   body as JSON (or form/url-encoded) and deserializing it into an instance
 //!   of type `J`. `J` must implement `serde::Deserialize` and `schemars::JsonSchema`.
@@ -330,9 +346,18 @@
 //!   hope is that this would generally not be needed.  It can be useful to
 //!   implement functionality not provided by Dropshot.
 //!
+//! Generally, the type parameter for the `Query`, `Header`, and `Path` extractors
+//! should be Rust structs. The struct's field _names_ correspond to the keys in
+//! the thing being extracted (i.e., they correspond to query parameter names
+//! for `Query`, header names for `Header`, and path component names for `Path`).
+//! The struct's field _values_ should generally be Rust primitives, strings,
+//! or enums containing no data.
+//! There is no facility for automatically parsing the values _again_ (e.g.,
+//! as JSON), which means nested values or enums with data cannot be supported.
+//!
 //! `Query` and `Path` impl `SharedExtractor`.  `TypedBody`, `UntypedBody`,
 //! `StreamingBody`, and `RawRequest` impl `ExclusiveExtractor`.  Your function
-//! may accept 0-3 extractors, but only one can be `ExclusiveExtractor`, and it
+//! may accept 0-5 extractors, but only one can be `ExclusiveExtractor`, and it
 //! must be the last one.  Otherwise, the order of extractor arguments does not
 //! matter.
 //!
@@ -834,6 +859,7 @@ mod dtrace;
 
 mod api_description;
 mod body;
+mod compression;
 mod config;
 mod error;
 mod error_status_code;
@@ -860,7 +886,10 @@ pub use api_description::{
     TagConfig, TagDetails, TagExternalDocs,
 };
 pub use body::Body;
-pub use config::{ConfigDropshot, ConfigTls, HandlerTaskMode, RawTlsConfig};
+pub use compression::NoCompression;
+pub use config::{
+    CompressionConfig, ConfigDropshot, ConfigTls, HandlerTaskMode, RawTlsConfig,
+};
 pub use dtrace::ProbeRegistration;
 pub use error::{HttpError, HttpErrorResponseBody};
 pub use extractor::{
@@ -904,6 +933,7 @@ pub use versioning::{
 // Users of the `endpoint` macro need the following macros:
 pub use handler::RequestContextArgument;
 pub use http::Method;
+pub use semver;
 
 extern crate dropshot_endpoint;
 

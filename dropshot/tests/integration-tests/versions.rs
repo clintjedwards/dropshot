@@ -2,7 +2,6 @@
 
 //! Exercise the API versioning behavior
 
-use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ClientSpecifiesVersionInHeader;
 use dropshot::HttpError;
@@ -11,6 +10,7 @@ use dropshot::HttpResponseOk;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
 use dropshot::VersionPolicy;
+use dropshot::endpoint;
 use reqwest::Method;
 use reqwest::StatusCode;
 use schemars::JsonSchema;
@@ -320,6 +320,39 @@ async fn test_versions() {
             assert_eq!(body, t.body_contents);
         }
     }
+}
+
+#[tokio::test]
+async fn test_versions_on_missing() {
+    let server = ServerBuilder::new(api(), (), None)
+        .version_policy(VersionPolicy::Dynamic(Box::new(
+            ClientSpecifiesVersionInHeader::new(
+                VERSION_HEADER_NAME.parse().unwrap(),
+                Version::new(1, 4, 0),
+            )
+            .on_missing(Version::new(1, 1, 0)),
+        )))
+        .start()
+        .unwrap();
+
+    let server_addr = server.local_addr();
+    let url = format!("http://{}/demo", server_addr);
+    let client = reqwest::Client::new();
+
+    // Missing header => should resolve to 1.1.0.
+    let request = client.request(Method::GET, &url);
+    let response = request.send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: String = response.json().await.unwrap();
+    assert_eq!(body, HANDLER2_MSG);
+
+    // Now add a version header.
+    let request =
+        client.request(Method::GET, &url).header(VERSION_HEADER_NAME, "1.4.0");
+    let response = request.send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: String = response.json().await.unwrap();
+    assert_eq!(body, HANDLER4_MSG);
 }
 
 /// Test that the generated OpenAPI spec only refers to handlers in that version

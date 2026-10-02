@@ -9,15 +9,19 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
   check-style:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Report cargo version
         run: cargo --version
       - name: Report rustfmt version
@@ -26,38 +30,84 @@ jobs:
         run: cargo fmt -- --check
 
   clippy-lint:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Report cargo version
         run: cargo --version
       - name: Report Clippy version
         run: cargo clippy -- --version
-      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false # See Swatinem/rust-cache#341.
       - name: Run Clippy Lints
         run: cargo clippy --all-targets -- --deny warnings
 
+  check-docs:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report cargo version
+        run: cargo --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false # See Swatinem/rust-cache#341.
+      - name: Check Docs
+        run: cargo doc --no-deps --lib --bins --examples
+
   build-and-test:
     runs-on: ${{ matrix.os }}
+    env:
+      # Override rust-toolchain.toml using explicit RUSTUP_TOOLCHAIN
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     strategy:
       matrix:
         # macos-14 for M1 runners
         os: [ubuntu-22.04, windows-2022, macos-14]
         features: [all, default]
+        rust-version: [stable, msrv]
         include:
           - features: all
             feature_flags: --all-features
+          - rust-version: stable
+            toolchain: stable
+          - rust-version: msrv
+            # Keep this in sync with rust-version in Cargo.toml.
+            toolchain: "1.88"
     steps:
-      - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update
       - name: Report cargo version
         run: cargo --version
       - name: Report rustc version
         run: rustc --version
-      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # Matrix instances other than OS need to be added to this explicitly
           key: ${{ matrix.features }}
+          cache-bin: false # See Swatinem/rust-cache#341.
       - name: Build
         run: cargo build ${{ matrix.feature_flags }} --locked --all-targets --verbose
       - name: Run tests
-        run: cargo test ${{ matrix.feature_flags }} --locked --all-targets --verbose
+        # The trybuild fixtures run in the trybuild job below, since they require the pinned toolchain.
+        run: cargo test ${{ matrix.feature_flags }} --locked --all-targets --verbose -- --exact --skip fail
+
+  trybuild:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # toolchain is pinned by rust-toolchain.toml which is required as the trybuild
+      # fixtures assert exact rustc diagnostics against committed .stderr files.
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Report cargo version
+        run: cargo --version
+      - name: Report rustc version
+        run: rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false # See Swatinem/rust-cache#341.
+      - name: Run trybuild tests
+        run: cargo test --locked --verbose -p dropshot --test fail

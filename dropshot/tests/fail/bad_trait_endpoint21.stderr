@@ -19,17 +19,39 @@ error: endpoint `variadic_argument` must not have a variadic argument
 33 |         ...
    |         ^^^
 
-error: only foreign, `unsafe extern "C"`, or `unsafe extern "C-unwind"` functions may have a C-variadic arg
+error: functions cannot be both `async` and C-variadic
+  --> tests/fail/bad_trait_endpoint21.rs:30:5
+   |
+30 |     async fn variadic_argument(
+   |     ^^^^^ `async` because of this
+...
+33 |         ...
+   |         ^^^ C-variadic because of this
+
+error: `...` is not supported for non-extern functions
   --> tests/fail/bad_trait_endpoint21.rs:33:9
    |
 33 |         ...
    |         ^^^
+   |
+   = help: only `extern "C"` and `extern "C-unwind"` functions may have a C variable argument list
 
-error: only foreign, `unsafe extern "C"`, or `unsafe extern "C-unwind"` functions may have a C-variadic arg
+error: functions cannot be both `async` and C-variadic
+  --> tests/fail/bad_trait_endpoint21.rs:43:5
+   |
+43 |     async fn variadic_argument(
+   |     ^^^^^ `async` because of this
+...
+46 |         ...
+   |         ^^^ C-variadic because of this
+
+error: `...` is not supported for non-extern functions
   --> tests/fail/bad_trait_endpoint21.rs:46:9
    |
 46 |         ...
    |         ^^^
+   |
+   = help: only `extern "C"` and `extern "C-unwind"` functions may have a C variable argument list
 
 error[E0658]: C-variadic functions are unstable
   --> tests/fail/bad_trait_endpoint21.rs:30:5
@@ -57,19 +79,42 @@ error[E0658]: C-variadic functions are unstable
    |
    = note: see issue #44930 <https://github.com/rust-lang/rust/issues/44930> for more information
 
+error: missing pattern for `...` argument
+  --> tests/fail/bad_trait_endpoint21.rs:33:9
+   |
+33 |         ...
+   |         ^^^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #145544 <https://github.com/rust-lang/rust/issues/145544>
+   = note: `#[deny(varargs_without_pattern)]` (part of `#[deny(future_incompatible)]`) on by default
+help: name the argument, or use `_` to continue ignoring it
+   |
+33 |         _: ...
+   |         ++
+
+error: missing pattern for `...` argument
+  --> tests/fail/bad_trait_endpoint21.rs:46:9
+   |
+46 |         ...
+   |         ^^^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #145544 <https://github.com/rust-lang/rust/issues/145544>
+help: name the argument, or use `_` to continue ignoring it
+   |
+46 |         _: ...
+   |         ++
+
 error[E0700]: hidden type for `impl Future<Output = Result<HttpResponseUpdatedNoContent, HttpError>>` captures lifetime that does not appear in bounds
   --> tests/fail/bad_trait_endpoint21.rs:47:58
    |
-43 | /      async fn variadic_argument(
-44 | |          _rqctx: RequestContext<Self::Context>,
-45 | |          _param1: Query<QueryParams>,
-46 | |          ...
-47 | |      ) -> Result<HttpResponseUpdatedNoContent, HttpError> {
-   | | ________________________________________________________-_^
-   | ||________________________________________________________|
-   |  |                                                        opaque type defined here
-48 |  |         unreachable!()
-49 |  |     }
-   |  |_____^
+47 |       ) -> Result<HttpResponseUpdatedNoContent, HttpError> {
+   |  __________-----------------------------------------------_^
+   | |          |
+   | |          opaque type defined here
+48 | |         unreachable!()
+49 | |     }
+   | |_____^
    |
    = note: hidden type `{async fn body of <MyImpl as MyApi>::variadic_argument()}` captures lifetime `'_`

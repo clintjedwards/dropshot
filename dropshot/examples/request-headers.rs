@@ -10,12 +10,12 @@
 //! This example is based on the "basic.rs" one.  See that one for more detailed
 //! comments on the common code.
 
-use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::HttpError;
 use dropshot::HttpResponseOk;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
+use dropshot::endpoint;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {

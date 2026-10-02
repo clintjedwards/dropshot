@@ -6,6 +6,17 @@ use serde::Serialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+/// Configuration for response compression
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressionConfig {
+    /// Compression is disabled
+    #[default]
+    None,
+    /// Gzip compression is enabled
+    Gzip,
+}
+
 /// Raw [`rustls::ServerConfig`] TLS configuration for use with
 /// [`ConfigTls::Dynamic`]
 pub type RawTlsConfig = rustls::ServerConfig;
@@ -55,6 +66,9 @@ pub struct ConfigDropshot {
     /// Default behavior for HTTP handler functions with respect to clients
     /// disconnecting early.
     pub default_handler_task_mode: HandlerTaskMode,
+    /// Whether to enable compression for responses (when response contents
+    /// allow it and clients ask for it through the Accept-Encoding header).
+    pub compression: CompressionConfig,
 }
 
 /// Enum specifying options for how a Dropshot server should run its handler
@@ -110,6 +124,7 @@ impl Default for ConfigDropshot {
             bind_address: "127.0.0.1:0".parse().unwrap(),
             default_request_body_max_bytes: 1024,
             default_handler_task_mode: HandlerTaskMode::Detached,
+            compression: CompressionConfig::default(),
         }
     }
 }
@@ -127,6 +142,7 @@ struct DeserializedConfigDropshot {
     )]
     request_body_max_bytes: Option<InvalidConfig>,
     default_handler_task_mode: HandlerTaskMode,
+    compression: CompressionConfig,
 }
 
 impl From<DeserializedConfigDropshot> for ConfigDropshot {
@@ -135,6 +151,7 @@ impl From<DeserializedConfigDropshot> for ConfigDropshot {
             bind_address: v.bind_address,
             default_request_body_max_bytes: v.default_request_body_max_bytes,
             default_handler_task_mode: v.default_handler_task_mode,
+            compression: v.compression,
         }
     }
 }
@@ -146,6 +163,7 @@ impl From<ConfigDropshot> for DeserializedConfigDropshot {
             default_request_body_max_bytes: v.default_request_body_max_bytes,
             request_body_max_bytes: None,
             default_handler_task_mode: v.default_handler_task_mode,
+            compression: v.compression,
         }
     }
 }

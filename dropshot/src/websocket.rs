@@ -1,4 +1,5 @@
-// Copyright 2023 Oxide Computer Company
+// Copyright 2026 Oxide Computer Company
+
 //! Implements websocket upgrades as an Extractor for use in API route handler
 //! parameters to indicate that the given endpoint is meant to be upgraded to
 //! a websocket.
@@ -6,17 +7,18 @@
 //! This exposes a raw upgraded HTTP connection to a user-provided async future,
 //! which will be spawned to handle the incoming connection.
 
-use crate::api_description::ExtensionMode;
+use crate::api_description::{ApiSchemaGenerator, ExtensionMode};
 use crate::body::Body;
+use crate::handler::HttpHandlerResult;
 use crate::{
-    ApiEndpointBodyContentType, ExclusiveExtractor, ExtractorMetadata,
-    HttpError, RequestContext, ServerContext,
+    ApiEndpointBodyContentType, ApiEndpointResponse, ExclusiveExtractor,
+    ExtractorMetadata, HttpError, HttpResponse, RequestContext, ServerContext,
 };
 use async_trait::async_trait;
 use base64::Engine;
-use http::header;
 use http::Response;
 use http::StatusCode;
+use http::header;
 use hyper::upgrade::OnUpgrade;
 use schemars::JsonSchema;
 use serde_json::json;
@@ -45,7 +47,39 @@ pub type WebsocketChannelResult =
 /// [WebsocketUpgrade::handle]'s return type.
 /// The `#[endpoint]` handler must return the value returned by
 /// [WebsocketUpgrade::handle]. (This is done for you by `#[channel]`.)
-pub type WebsocketEndpointResult = Result<Response<Body>, HttpError>;
+pub type WebsocketEndpointResult = Result<SwitchingToWebsocket, HttpError>;
+
+pub struct SwitchingToWebsocket {
+    accept_key: String,
+}
+
+impl HttpResponse for SwitchingToWebsocket {
+    fn to_result(self) -> HttpHandlerResult {
+        Response::builder()
+            .status(StatusCode::SWITCHING_PROTOCOLS)
+            .header(header::CONNECTION, "Upgrade")
+            .header(header::UPGRADE, "websocket")
+            .header(header::SEC_WEBSOCKET_ACCEPT, self.accept_key)
+            .body(Body::empty())
+            .map_err(Into::into)
+    }
+    fn response_metadata() -> ApiEndpointResponse {
+        const UPGRADE_DESCRIPTION: &str =
+            "Negotiating protocol upgrade from HTTP/1.1 to WebSocket";
+        ApiEndpointResponse {
+            schema: Some(ApiSchemaGenerator::Static {
+                schema: Box::new(schemars::schema::Schema::Bool(false)),
+                dependencies: Default::default(),
+            }),
+            headers: vec![],
+            success: Some(StatusCode::SWITCHING_PROTOCOLS),
+            description: Some(UPGRADE_DESCRIPTION.to_string()),
+        }
+    }
+    fn status_code(&self) -> StatusCode {
+        StatusCode::SWITCHING_PROTOCOLS
+    }
+}
 
 /// The upgraded connection passed as the last argument to the websocket
 /// handler function. [`WebsocketConnection::into_inner`] can be used to
@@ -236,13 +270,7 @@ impl WebsocketUpgrade {
                         }
                     }
                 });
-                Response::builder()
-                    .status(StatusCode::SWITCHING_PROTOCOLS)
-                    .header(header::CONNECTION, "Upgrade")
-                    .header(header::UPGRADE, "websocket")
-                    .header(header::SEC_WEBSOCKET_ACCEPT, accept_key)
-                    .body(Body::empty())
-                    .map_err(Into::into)
+                Ok(SwitchingToWebsocket { accept_key })
             }
         }
     }
@@ -266,7 +294,7 @@ impl JsonSchema for WebsocketUpgrade {
     }
 
     fn json_schema(
-        _gen: &mut schemars::gen::SchemaGenerator,
+        _gen: &mut schemars::r#gen::SchemaGenerator,
     ) -> schemars::schema::Schema {
         let mut schema = schemars::schema::SchemaObject::default();
         schema
@@ -325,7 +353,7 @@ impl tokio::io::AsyncWrite for WebsocketConnectionRaw {
 #[cfg(test)]
 mod tests {
     use crate::body::Body;
-    use crate::config::HandlerTaskMode;
+    use crate::config::{CompressionConfig, HandlerTaskMode};
     use crate::router::HttpRouter;
     use crate::server::{DropshotState, ServerConfig};
     use crate::{
@@ -359,6 +387,7 @@ mod tests {
                     page_default_nitems: NonZeroU32::new(1).unwrap(),
                     default_handler_task_mode:
                         HandlerTaskMode::CancelOnDisconnect,
+                    compression: CompressionConfig::Gzip,
                 },
                 router: HttpRouter::new(),
                 local_addr: SocketAddr::new(

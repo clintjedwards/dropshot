@@ -1,8 +1,7 @@
-// Copyright 2020 Oxide Computer Company
+// Copyright 2025 Oxide Computer Company
 
 //! Example use of Dropshot with TLS enabled
 
-use dropshot::endpoint;
 use dropshot::ApiDescription;
 use dropshot::ConfigTls;
 use dropshot::HttpError;
@@ -11,6 +10,7 @@ use dropshot::HttpResponseUpdatedNoContent;
 use dropshot::RequestContext;
 use dropshot::ServerBuilder;
 use dropshot::TypedBody;
+use dropshot::endpoint;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -27,7 +27,7 @@ fn generate_keys() -> Result<(NamedTempFile, NamedTempFile), String> {
         rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .map_err(|e| e.to_string())?;
     let cert = keypair.cert.pem();
-    let priv_key = keypair.key_pair.serialize_pem();
+    let priv_key = keypair.signing_key.serialize_pem();
 
     let make_temp = || {
         tempfile::Builder::new()

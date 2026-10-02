@@ -99,13 +99,13 @@
 
 use crate::error::HttpError;
 use crate::from_map::from_map;
-use base64::engine::general_purpose::URL_SAFE;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE;
 use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
@@ -131,9 +131,9 @@ where
     }
 
     fn json_schema(
-        gen: &mut schemars::gen::SchemaGenerator,
+        r#gen: &mut schemars::r#gen::SchemaGenerator,
     ) -> schemars::schema::Schema {
-        ResultsPageSchema::<ItemType>::json_schema(gen)
+        ResultsPageSchema::<ItemType>::json_schema(r#gen)
     }
 }
 
@@ -234,10 +234,24 @@ where
 
     /// Client-requested limit on page size (optional)
     ///
-    /// Consumers should use
-    /// [`RequestContext`][crate::handler::RequestContext::page_limit()]
-    /// to access this value.
+    /// While this is publicly settable via the `Deserialize` implementation, it
+    /// is untrusted and therefore hidden from users. Consumers should instead
+    /// use [`RequestContext`][crate::handler::RequestContext::page_limit()],
+    /// which has gone through validation against the server config, to access
+    /// this value.
     pub(crate) limit: Option<NonZeroU32>,
+}
+
+impl<ScanParams, PageSelector> PaginationParams<ScanParams, PageSelector>
+where
+    ScanParams: DeserializeOwned,
+    PageSelector: DeserializeOwned + Serialize,
+{
+    /// Construct a new [`PaginationParams`] representing the first page of a
+    /// scan.
+    pub fn new_first_page(p: ScanParams, limit: Option<NonZeroU32>) -> Self {
+        Self { page: WhichPage::First(p), limit }
+    }
 }
 
 pub(crate) const PAGINATION_PARAM_SENTINEL: &str =
@@ -260,7 +274,7 @@ where
     }
 
     fn json_schema(
-        gen: &mut schemars::gen::SchemaGenerator,
+        r#gen: &mut schemars::r#gen::SchemaGenerator,
     ) -> schemars::schema::Schema {
         // We use `SchemaPaginationParams` to generate an intuitive schema and
         // we use the JSON schema extensions mechanism to communicate the fact
@@ -273,9 +287,10 @@ where
         //
         // TODO we would ideally like to verify that both parameters *and*
         // response structure are properly configured for pagination.
-        let mut schema = SchemaPaginationParams::<ScanParams>::json_schema(gen)
-            .into_object();
-        let first_page_schema = ScanParams::json_schema(gen);
+        let mut schema =
+            SchemaPaginationParams::<ScanParams>::json_schema(r#gen)
+                .into_object();
+        let first_page_schema = ScanParams::json_schema(r#gen);
         let Some(first_page_object) = first_page_schema.into_object().object
         else {
             panic!("ScanParams must be an object");
@@ -500,18 +515,18 @@ fn deserialize_page_token<PageSelector: DeserializeOwned>(
 
 #[cfg(test)]
 mod test {
-    use super::deserialize_page_token;
-    use super::serialize_page_token;
+    use super::PAGINATION_PARAM_SENTINEL;
     use super::PaginationParams;
     use super::ResultsPage;
     use super::WhichPage;
-    use super::PAGINATION_PARAM_SENTINEL;
-    use base64::engine::general_purpose::URL_SAFE;
+    use super::deserialize_page_token;
+    use super::serialize_page_token;
     use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE;
     use schemars::JsonSchema;
-    use serde::de::DeserializeOwned;
     use serde::Deserialize;
     use serde::Serialize;
+    use serde::de::DeserializeOwned;
     use serde_json::json;
     use std::{fmt::Debug, num::NonZeroU32};
 
@@ -562,9 +577,9 @@ mod test {
         let error = serialize_page_token(&input).unwrap_err();
         assert_eq!(error.status_code, http::StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.external_message, "Internal Server Error");
-        assert!(error
-            .internal_message
-            .contains("serialized token is too large"));
+        assert!(
+            error.internal_message.contains("serialized token is too large")
+        );
 
         // Non-base64
         let error =
@@ -816,8 +831,8 @@ mod test {
 
     #[test]
     fn test_pagination_schema() {
-        let settings = schemars::gen::SchemaSettings::openapi3();
-        let mut generator = schemars::gen::SchemaGenerator::new(settings);
+        let settings = schemars::r#gen::SchemaSettings::openapi3();
+        let mut generator = schemars::r#gen::SchemaGenerator::new(settings);
         let schema =
             PaginationParams::<Name, Name>::json_schema(&mut generator)
                 .into_object();
